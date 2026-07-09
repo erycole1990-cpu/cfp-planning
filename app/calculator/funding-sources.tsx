@@ -11,17 +11,29 @@ export type FundingSource = {
 };
 
 const sourceTemplates = [
-  { label: "Cash / Savings", annualReturn: "2" },
-  { label: "PTPTN", annualReturn: "0" },
-  { label: "EPF Account 2", annualReturn: "5" },
-  { label: "Insurance Cash Value", annualReturn: "3" },
-  { label: "Scholarship / Family", annualReturn: "0" },
-  { label: "Other", annualReturn: "0" },
+  { group: "Cash and savings", label: "Cash / Savings", annualReturn: "2", availability: "Available now" },
+  { group: "Retirement", label: "EPF Account 1", annualReturn: "5", availability: "Retirement withdrawal rules" },
+  { group: "Retirement", label: "EPF Account 2", annualReturn: "5", availability: "Subject to withdrawal rules" },
+  { group: "Retirement", label: "PRS / Retirement Scheme", annualReturn: "5", availability: "Retirement scheme rules" },
+  { group: "Investments", label: "Shares / Unit Trust", annualReturn: "7", availability: "Market value at goal date" },
+  { group: "Investments", label: "P2P Financing", annualReturn: "8", availability: "Subject to platform and credit risk" },
+  { group: "Property", label: "Property Value", annualReturn: "4", availability: "Sale / refinance value" },
+  { group: "Property", label: "Property Rental Income", annualReturn: "3", availability: "Projected rental cash flow" },
+  { group: "Income sources", label: "Business Income", annualReturn: "3", availability: "Projected business cash flow" },
+  { group: "Income sources", label: "Royalty Income", annualReturn: "2", availability: "Projected royalty cash flow" },
+  { group: "Education", label: "PTPTN", annualReturn: "0", availability: "Loan / funding at enrolment" },
+  { group: "Education", label: "Scholarship / Family", annualReturn: "0", availability: "To confirm" },
+  { group: "Protection", label: "Insurance Cash Value", annualReturn: "3", availability: "Policy maturity / surrender value" },
+  { group: "Other", label: "Other Asset", annualReturn: "0", availability: "To confirm" },
+  { group: "Other", label: "Other Income Source", annualReturn: "0", availability: "To confirm" },
 ];
+
+const sourceTemplateGroups = Array.from(new Set(sourceTemplates.map((source) => source.group)));
 
 export function defaultFundingSources(amount = "0"): FundingSource[] {
   return [
     { id: "cash", label: "Cash / Savings", amount, annualReturn: "2", availability: "Available now" },
+    { id: "epf1", label: "EPF Account 1", amount: "0", annualReturn: "5", availability: "Retirement withdrawal rules" },
     { id: "ptptn", label: "PTPTN", amount: "0", annualReturn: "0", availability: "Loan / funding at enrolment" },
     { id: "epf2", label: "EPF Account 2", amount: "0", annualReturn: "5", availability: "Subject to withdrawal rules" },
     { id: "insurance", label: "Insurance Cash Value", amount: "0", annualReturn: "3", availability: "Policy maturity / surrender value" },
@@ -66,7 +78,7 @@ export function FundingSourcesEditor({
         label: template.label,
         amount: "0",
         annualReturn: template.annualReturn,
-        availability: template.label === "Other" ? "" : "To confirm",
+        availability: template.availability,
       },
     ]);
   }
@@ -80,17 +92,23 @@ export function FundingSourcesEditor({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-bold">Funding sources</h3>
-          <p className="mt-1 text-sm text-[#68756f]">Add PTPTN, EPF Account 2, insurance value, family support, or other sources.</p>
+          <p className="mt-1 text-sm text-[#68756f]">Add EPF, investments, property, income streams, education funding, insurance value, or other sources.</p>
         </div>
         <select className="input max-w-56" defaultValue="" onChange={(event) => {
           if (event.target.value) addSource(event.target.value);
           event.target.value = "";
         }}>
           <option value="">Add source</option>
-          {sourceTemplates.map((source) => (
-            <option key={source.label} value={source.label}>
-              {source.label}
-            </option>
+          {sourceTemplateGroups.map((group) => (
+            <optgroup key={group} label={group}>
+              {sourceTemplates
+                .filter((source) => source.group === group)
+                .map((source) => (
+                  <option key={source.label} value={source.label}>
+                    {source.label}
+                  </option>
+                ))}
+            </optgroup>
           ))}
         </select>
       </div>

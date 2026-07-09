@@ -64,6 +64,18 @@ export type NextStepAction = {
   priority: string;
 };
 
+export type FinancialStatementItem = {
+  id: string;
+  created_at: string;
+  customer_id: string;
+  statement_type: string;
+  item_type: string;
+  category: string | null;
+  description: string;
+  amount: number | string;
+  frequency: string | null;
+};
+
 export function getSupabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import {
   completeNextStepAction,
   createNextStepAction,
+  createFinancialStatementItem,
+  deleteFinancialStatementItem,
   endCustomerService,
   logProgress,
   reactivateCustomerService,
@@ -14,6 +16,7 @@ import { formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
 import { getCustomerDetail } from "@/lib/cfp/data";
 import { AddGoalForm } from "./add-goal-form";
 import { RiskProfileField } from "@/app/customers/risk-profile-field";
+import type { FinancialStatementItem } from "@/lib/cfp/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +57,142 @@ function calculatorHref(goal: {
     years: String(yearsUntil(goal.target_date)),
   });
   return `/calculator?${params.toString()}`;
+}
+
+function monthlyEquivalent(item: FinancialStatementItem) {
+  const amount = Number(item.amount) || 0;
+  return item.frequency === "annual" ? amount / 12 : amount;
+}
+
+function sumStatement(items: FinancialStatementItem[], statementType: string, itemTypes: string[], monthly = false) {
+  return items
+    .filter((item) => item.statement_type === statementType && itemTypes.includes(item.item_type))
+    .reduce((total, item) => total + (monthly ? monthlyEquivalent(item) : Number(item.amount) || 0), 0);
+}
+
+function StatementSection({
+  title,
+  summary,
+  statementType,
+  items,
+  customerId,
+  actor,
+  itemTypes,
+  categories,
+  showFrequency = true,
+}: {
+  title: string;
+  summary: string;
+  statementType: string;
+  items: FinancialStatementItem[];
+  customerId: string;
+  actor: string;
+  itemTypes: Array<{ value: string; label: string }>;
+  categories: string[];
+  showFrequency?: boolean;
+}) {
+  return (
+    <details className="rounded-md border border-[#dce2dc] p-4" open={statementType === "balance_sheet"}>
+      <summary className="cursor-pointer text-lg font-bold">{title}</summary>
+      <p className="mt-2 text-sm text-[#68756f]">{summary}</p>
+
+      <form action={createFinancialStatementItem} className="mt-4 grid gap-3 lg:grid-cols-[0.8fr_1fr_1.3fr_0.8fr_0.8fr_auto]">
+        <input type="hidden" name="customer_id" value={customerId} />
+        <input type="hidden" name="actor" value={actor} />
+        <input type="hidden" name="statement_type" value={statementType} />
+        <label className="field">
+          <span className="label">Type</span>
+          <select className="input" name="item_type" required>
+            {itemTypes.map((type) => (
+              <option key={type.value} value={type.value}>
+                {type.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="label">Category</span>
+          <select className="input" name="category" defaultValue={categories[0] || ""}>
+            {categories.map((category) => (
+              <option key={category}>{category}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="label">Description</span>
+          <input className="input" name="description" required placeholder="Example: EPF, housing loan, salary, rent" />
+        </label>
+        <label className="field">
+          <span className="label">Amount</span>
+          <input className="input" name="amount" required min="0" step="1" type="number" />
+        </label>
+        <label className="field">
+          <span className="label">Frequency</span>
+          <select className="input" name="frequency" defaultValue={showFrequency ? "monthly" : "current"}>
+            {showFrequency ? (
+              <>
+                <option value="monthly">Monthly</option>
+                <option value="annual">Annual</option>
+              </>
+            ) : (
+              <option value="current">Current value</option>
+            )}
+          </select>
+        </label>
+        <div className="flex items-end">
+          <button className="btn w-full" type="submit">
+            Add
+          </button>
+        </div>
+      </form>
+
+      <div className="mt-4 table-wrap rounded-md border border-[#dce2dc]">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Amount</th>
+              <th>{showFrequency ? "Monthly eq." : "Value"}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td className="capitalize">{item.item_type.replace("_", " ")}</td>
+                <td>{item.category || "Not set"}</td>
+                <td>{item.description}</td>
+                <td>
+                  {formatCurrency(item.amount)}
+                  {showFrequency ? <p className="text-sm text-[#68756f]">{item.frequency || "monthly"}</p> : null}
+                </td>
+                <td>{formatCurrency(showFrequency ? monthlyEquivalent(item) : item.amount)}</td>
+                <td>
+                  <form action={deleteFinancialStatementItem}>
+                    <input type="hidden" name="customer_id" value={customerId} />
+                    <input type="hidden" name="statement_item_id" value={item.id} />
+                    <input type="hidden" name="actor" value={actor} />
+                    <button className="btn btn-secondary" type="submit">
+                      Remove
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            ))}
+            {!items.length ? (
+              <tr>
+                <td colSpan={6} className="text-sm text-[#68756f]">
+                  No line items yet.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
 }
 
 export default async function CustomerDetailPage({
@@ -102,6 +241,20 @@ export default async function CustomerDetailPage({
     if (priorityDelta) return priorityDelta;
     return new Date(a.target_date).getTime() - new Date(b.target_date).getTime();
   });
+  const statementItems = data.statementItems ?? [];
+  const balanceSheetItems = statementItems.filter((item) => item.statement_type === "balance_sheet");
+  const cashFlowItems = statementItems.filter((item) => item.statement_type === "cash_flow");
+  const profitLossItems = statementItems.filter((item) => item.statement_type === "profit_loss");
+  const totalAssets = sumStatement(statementItems, "balance_sheet", ["asset"]);
+  const totalLiabilities = sumStatement(statementItems, "balance_sheet", ["liability"]);
+  const netWorth = totalAssets - totalLiabilities;
+  const monthlyIncome = sumStatement(statementItems, "cash_flow", ["income"], true);
+  const monthlyExpenses = sumStatement(statementItems, "cash_flow", ["expense"], true);
+  const monthlySurplus = monthlyIncome - monthlyExpenses;
+  const monthlyRevenue = sumStatement(statementItems, "profit_loss", ["revenue"], true);
+  const monthlyCosts = sumStatement(statementItems, "profit_loss", ["cost", "expense"], true);
+  const monthlyProfit = monthlyRevenue - monthlyCosts;
+  const actor = customer?.assigned_advisor_name || "Advisor";
 
   return (
     <AppShell>
@@ -372,6 +525,77 @@ export default async function CustomerDetailPage({
             <div className="panel p-5">
               <h2 className="text-xl font-bold">Add financial goal</h2>
               <AddGoalForm customerId={customer.id} actor={customer.assigned_advisor_name || "Advisor"} today={today} />
+            </div>
+          </section>
+
+          <section id="financial-statements" className="panel p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-bold">Financial Statements</h2>
+                <p className="mt-1 text-sm text-[#68756f]">Balance sheet, cash flow, and profit and loss figures for planning decisions.</p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-md bg-[#f5f7f4] p-4">
+                <p className="text-sm font-bold uppercase text-[#68756f]">Net Worth</p>
+                <p className="mt-2 text-2xl font-bold">{formatCurrency(netWorth)}</p>
+                <p className="mt-1 text-sm text-[#405047]">{formatCurrency(totalAssets)} assets - {formatCurrency(totalLiabilities)} liabilities</p>
+              </div>
+              <div className="rounded-md bg-[#f5f7f4] p-4">
+                <p className="text-sm font-bold uppercase text-[#68756f]">Monthly Surplus</p>
+                <p className="mt-2 text-2xl font-bold">{formatCurrency(monthlySurplus)}</p>
+                <p className="mt-1 text-sm text-[#405047]">{formatCurrency(monthlyIncome)} income - {formatCurrency(monthlyExpenses)} expenses</p>
+              </div>
+              <div className="rounded-md bg-[#f5f7f4] p-4">
+                <p className="text-sm font-bold uppercase text-[#68756f]">Monthly Profit</p>
+                <p className="mt-2 text-2xl font-bold">{formatCurrency(monthlyProfit)}</p>
+                <p className="mt-1 text-sm text-[#405047]">{formatCurrency(monthlyRevenue)} revenue - {formatCurrency(monthlyCosts)} costs</p>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <StatementSection
+                title="Balance Sheet"
+                summary="Current assets and liabilities. This gives the client's net worth position."
+                statementType="balance_sheet"
+                items={balanceSheetItems}
+                customerId={customer.id}
+                actor={actor}
+                showFrequency={false}
+                itemTypes={[
+                  { value: "asset", label: "Asset" },
+                  { value: "liability", label: "Liability" },
+                ]}
+                categories={["Cash", "EPF / Retirement", "Investment", "Property", "Vehicle", "Insurance", "Loan", "Credit Card", "Other"]}
+              />
+              <StatementSection
+                title="Cash Flow Statement"
+                summary="Personal income and expenses. This shows monthly saving capacity or shortfall."
+                statementType="cash_flow"
+                items={cashFlowItems}
+                customerId={customer.id}
+                actor={actor}
+                itemTypes={[
+                  { value: "income", label: "Income" },
+                  { value: "expense", label: "Expense" },
+                ]}
+                categories={["Salary", "Bonus", "Rental", "Investment Income", "Household", "Loan Repayment", "Insurance", "Education", "Lifestyle", "Other"]}
+              />
+              <StatementSection
+                title="Profit and Loss Statement"
+                summary="Business or side-income revenue, cost, and expenses. Useful for business owners and self-employed clients."
+                statementType="profit_loss"
+                items={profitLossItems}
+                customerId={customer.id}
+                actor={actor}
+                itemTypes={[
+                  { value: "revenue", label: "Revenue" },
+                  { value: "cost", label: "Cost" },
+                  { value: "expense", label: "Expense" },
+                ]}
+                categories={["Sales", "Service Income", "Rental Income", "Cost of Goods", "Payroll", "Marketing", "Rent", "Utilities", "Tax", "Other"]}
+              />
             </div>
           </section>
 

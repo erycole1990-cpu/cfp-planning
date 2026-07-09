@@ -191,6 +191,71 @@ export async function reactivateCustomerService(formData: FormData) {
   redirect(`/customers/${customerId}?saved=reactivated`);
 }
 
+export async function createFinancialStatementItem(formData: FormData) {
+  const supabase = requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const actor = requiredText(formData, "actor");
+  const statementType = requiredText(formData, "statement_type");
+  const itemType = requiredText(formData, "item_type");
+
+  if (!["balance_sheet", "cash_flow", "profit_loss"].includes(statementType)) {
+    throw new Error("Statement type is invalid.");
+  }
+
+  const payload = {
+    customer_id: customerId,
+    statement_type: statementType,
+    item_type: itemType,
+    category: text(formData, "category"),
+    description: requiredText(formData, "description"),
+    amount: numberValue(formData, "amount"),
+    frequency: text(formData, "frequency") || "monthly",
+  };
+
+  const { data, error } = await supabase.from("financial_statement_items").insert(payload).select("id").single();
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor,
+    action: "financial_statement_item_created",
+    entityType: "financial_statement_items",
+    entityId: data.id,
+    payload,
+  });
+
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/customers/${customerId}?saved=statement#financial-statements`);
+}
+
+export async function deleteFinancialStatementItem(formData: FormData) {
+  const supabase = requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const itemId = requiredText(formData, "statement_item_id");
+  const actor = requiredText(formData, "actor");
+
+  const { data: item, error: itemError } = await supabase
+    .from("financial_statement_items")
+    .select("*")
+    .eq("id", itemId)
+    .eq("customer_id", customerId)
+    .single();
+  if (itemError) throw new Error(itemError.message);
+
+  const { error } = await supabase.from("financial_statement_items").delete().eq("id", itemId).eq("customer_id", customerId);
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor,
+    action: "financial_statement_item_deleted",
+    entityType: "financial_statement_items",
+    entityId: itemId,
+    payload: item,
+  });
+
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/customers/${customerId}?saved=statement#financial-statements`);
+}
+
 export async function createGoal(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");

@@ -1,4 +1,11 @@
-import { createCfpClient, type Customer, type FinancialGoal, type GoalProgressLog, type NextStepAction } from "./supabase";
+import {
+  createCfpClient,
+  type Customer,
+  type FinancialGoal,
+  type FinancialStatementItem,
+  type GoalProgressLog,
+  type NextStepAction,
+} from "./supabase";
 import { statusRank } from "./status";
 
 export type DashboardData = {
@@ -90,7 +97,7 @@ export async function getCustomerDetail(id: string) {
   const supabase = createCfpClient();
   if (!supabase) return { configured: false };
 
-  const [customerResult, goalsResult, logsResult, actionsResult] = await Promise.all([
+  const [customerResult, goalsResult, logsResult, actionsResult, statementsResult] = await Promise.all([
     supabase.from("customers").select("*").eq("id", id).single(),
     supabase.from("financial_goals").select("*").eq("customer_id", id).order("target_date"),
     supabase
@@ -99,6 +106,7 @@ export async function getCustomerDetail(id: string) {
       .in("goal_id", await goalIdsForCustomer(id))
       .order("created_at", { ascending: false }),
     supabase.from("next_step_actions").select("*").eq("customer_id", id).order("due_date", { ascending: true }),
+    supabase.from("financial_statement_items").select("*").eq("customer_id", id).order("created_at", { ascending: true }),
   ]);
 
   const goals = (goalsResult.data ?? []) as FinancialGoal[];
@@ -112,8 +120,14 @@ export async function getCustomerDetail(id: string) {
     goals,
     logs,
     actions: (actionsResult.data ?? []) as NextStepAction[],
+    statementItems: (statementsResult.data ?? []) as FinancialStatementItem[],
     latestLogsByGoal,
-    error: customerResult.error?.message || goalsResult.error?.message || logsResult.error?.message || actionsResult.error?.message,
+    error:
+      customerResult.error?.message ||
+      goalsResult.error?.message ||
+      logsResult.error?.message ||
+      actionsResult.error?.message ||
+      statementsResult.error?.message,
   };
 }
 

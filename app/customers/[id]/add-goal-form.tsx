@@ -17,6 +17,33 @@ function monthlyContribution(gap: number, years: number, annualReturn: number) {
   return gap / (((Math.pow(1 + monthlyRate, months) - 1) / monthlyRate));
 }
 
+const goalTypeGroups = [
+  {
+    label: "Core planning",
+    options: ["Retirement", "Education", "Emergency Fund", "Wealth Accumulation", "Protection"],
+  },
+  {
+    label: "Family and care",
+    options: ["Parenting / Childcare Cost", "Elderly Parent Care", "Medical Reserve", "Wedding / Family Event"],
+  },
+  {
+    label: "Property and debt",
+    options: ["House Purchase", "Home Renovation", "Mortgage Settlement", "Debt Settlement"],
+  },
+  {
+    label: "Lifestyle and purchases",
+    options: ["Car Purchase", "Travel / Pilgrimage", "Major Purchase"],
+  },
+  {
+    label: "Business and career",
+    options: ["Business Startup", "Business Expansion", "Career Break / Reskilling"],
+  },
+  {
+    label: "Legacy",
+    options: ["Estate / Legacy Planning", "Charity / Giving", "Other / Custom Goal"],
+  },
+];
+
 export function AddGoalForm({
   customerId,
   actor,
@@ -54,11 +81,13 @@ export function AddGoalForm({
       <label className="field">
         <span className="label">Goal type</span>
         <select className="input" name="goal_type" required defaultValue="Retirement">
-          <option>Retirement</option>
-          <option>Education</option>
-          <option>Emergency Fund</option>
-          <option>Wealth Accumulation</option>
-          <option>Protection</option>
+          {goalTypeGroups.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.options.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </optgroup>
+          ))}
         </select>
       </label>
       <label className="field">

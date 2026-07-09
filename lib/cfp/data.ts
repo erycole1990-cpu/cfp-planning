@@ -58,12 +58,22 @@ export async function getDashboardData(): Promise<DashboardData> {
   };
 }
 
-export async function getCustomersData() {
+export type CustomerServiceFilter = "active" | "inactive" | "all";
+
+export async function getCustomersData(filter: CustomerServiceFilter = "active") {
   const supabase = createCfpClient();
   if (!supabase) return { configured: false, customers: [], goals: [] as FinancialGoal[] };
 
+  let customersQuery = supabase.from("customers").select("*").order("full_name");
+  if (filter === "active") {
+    customersQuery = customersQuery.or("service_status.is.null,service_status.eq.active");
+  }
+  if (filter === "inactive") {
+    customersQuery = customersQuery.eq("service_status", "inactive");
+  }
+
   const [customersResult, goalsResult] = await Promise.all([
-    supabase.from("customers").select("*").or("service_status.is.null,service_status.eq.active").order("full_name"),
+    customersQuery,
     supabase.from("financial_goals").select("*"),
   ]);
   const activeCustomerIds = new Set(((customersResult.data ?? []) as Customer[]).map((customer) => customer.id));

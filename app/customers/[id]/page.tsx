@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { completeNextStepAction, createNextStepAction, logProgress, updateCustomer, updateGoalPriority } from "@/app/actions";
+import {
+  completeNextStepAction,
+  createNextStepAction,
+  endCustomerService,
+  logProgress,
+  reactivateCustomerService,
+  updateCustomer,
+  updateGoalPriority,
+} from "@/app/actions";
 import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge, StatusBadge } from "@/app/ui";
 import { formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
 import { getCustomerDetail } from "@/lib/cfp/data";
@@ -61,6 +69,7 @@ export default async function CustomerDetailPage({
   if (data.configured && !data.customer && !data.error) notFound();
 
   const customer = data.customer;
+  const isInactiveCustomer = customer?.service_status === "inactive";
   const today = toDateInputValue(new Date());
   const actionsByGoal = new Map<string, NonNullable<typeof data.actions>>();
   for (const action of data.actions ?? []) {
@@ -117,6 +126,11 @@ export default async function CustomerDetailPage({
           Saved. The database and dashboard are updated.
         </div>
       ) : null}
+      {isInactiveCustomer ? (
+        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+          This customer is marked no longer servicing and is hidden from the active customer list.
+        </div>
+      ) : null}
 
       {data.configured && customer ? (
         <div className="space-y-6">
@@ -139,6 +153,14 @@ export default async function CustomerDetailPage({
                 <div>
                   <dt className="font-bold text-[#68756f]">Risk</dt>
                   <dd className="capitalize">{customer.risk_profile || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">Service status</dt>
+                  <dd className="capitalize">{customer.service_status || "active"}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">Service ended</dt>
+                  <dd>{customer.service_ended_at ? formatDate(customer.service_ended_at) : "Not ended"}</dd>
                 </div>
                 <div>
                   <dt className="font-bold text-[#68756f]">NRIC / Passport</dt>
@@ -186,6 +208,12 @@ export default async function CustomerDetailPage({
                 </div>
               </dl>
               <p className="mt-4 text-sm text-[#405047]">{customer.notes || "No customer notes yet."}</p>
+              {customer.service_ended_reason ? (
+                <p className="mt-2 text-sm text-[#405047]">
+                  <span className="font-bold">Service ended reason: </span>
+                  {customer.service_ended_reason}
+                </p>
+              ) : null}
 
               <details className="mt-5 rounded-md border border-[#dce2dc] p-4">
                 <summary className="cursor-pointer font-bold">Edit customer</summary>
@@ -313,6 +341,37 @@ export default async function CustomerDetailPage({
                     Save Profile
                   </button>
                 </form>
+              </details>
+
+              <details className="mt-5 rounded-md border border-[#dce2dc] p-4">
+                <summary className="cursor-pointer font-bold">{isInactiveCustomer ? "Reactivate servicing" : "End servicing"}</summary>
+                {isInactiveCustomer ? (
+                  <form action={reactivateCustomerService} className="mt-4 grid gap-3">
+                    <input type="hidden" name="customer_id" value={customer.id} />
+                    <input type="hidden" name="actor" value={customer.assigned_advisor_name || "Advisor"} />
+                    <p className="text-sm text-[#405047]">Move this customer back into the active customer list.</p>
+                    <button className="btn" type="submit">
+                      Reactivate Customer
+                    </button>
+                  </form>
+                ) : (
+                  <form action={endCustomerService} className="mt-4 grid gap-3">
+                    <input type="hidden" name="customer_id" value={customer.id} />
+                    <input type="hidden" name="actor" value={customer.assigned_advisor_name || "Advisor"} />
+                    <label className="field">
+                      <span className="label">Reason</span>
+                      <textarea
+                        className="input min-h-20"
+                        name="service_ended_reason"
+                        required
+                        placeholder="Transferred, no longer servicing, duplicate record, or other reason"
+                      />
+                    </label>
+                    <button className="btn border border-red-200 bg-red-50 text-red-700 hover:bg-red-100" type="submit">
+                      Mark No Longer Servicing
+                    </button>
+                  </form>
+                )}
               </details>
             </div>
 

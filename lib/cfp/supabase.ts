@@ -18,6 +18,9 @@ export type Customer = {
   monthly_income_range: string | null;
   source_of_funds: string | null;
   source_of_wealth: string | null;
+  service_status: string | null;
+  service_ended_at: string | null;
+  service_ended_reason: string | null;
   risk_profile: string | null;
   assigned_advisor_name: string | null;
   notes: string | null;

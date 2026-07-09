@@ -17,7 +17,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   }
 
   const [customersResult, goalsResult, actionsResult, logsResult] = await Promise.all([
-    supabase.from("customers").select("*").order("created_at", { ascending: true }),
+    supabase.from("customers").select("*").or("service_status.is.null,service_status.eq.active").order("created_at", { ascending: true }),
     supabase
       .from("financial_goals")
       .select("*, customer:customers(id, full_name, assigned_advisor_name)")
@@ -42,7 +42,8 @@ export async function getDashboardData(): Promise<DashboardData> {
     latestLogsByGoal[log.goal_id] ||= log;
   }
 
-  const goals = ((goalsResult.data ?? []) as DashboardData["goals"]).sort((a, b) => {
+  const activeCustomerIds = new Set(((customersResult.data ?? []) as Customer[]).map((customer) => customer.id));
+  const goals = ((goalsResult.data ?? []) as DashboardData["goals"]).filter((goal) => activeCustomerIds.has(goal.customer_id)).sort((a, b) => {
     const statusDelta = statusRank(a.on_track_status) - statusRank(b.on_track_status);
     if (statusDelta) return statusDelta;
     return new Date(a.target_date).getTime() - new Date(b.target_date).getTime();
@@ -52,7 +53,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     configured: true,
     customers: (customersResult.data ?? []) as Customer[],
     goals,
-    actions: (actionsResult.data ?? []) as DashboardData["actions"],
+    actions: ((actionsResult.data ?? []) as DashboardData["actions"]).filter((action) => activeCustomerIds.has(action.customer_id)),
     latestLogsByGoal,
   };
 }
@@ -62,14 +63,15 @@ export async function getCustomersData() {
   if (!supabase) return { configured: false, customers: [], goals: [] as FinancialGoal[] };
 
   const [customersResult, goalsResult] = await Promise.all([
-    supabase.from("customers").select("*").order("full_name"),
+    supabase.from("customers").select("*").or("service_status.is.null,service_status.eq.active").order("full_name"),
     supabase.from("financial_goals").select("*"),
   ]);
+  const activeCustomerIds = new Set(((customersResult.data ?? []) as Customer[]).map((customer) => customer.id));
 
   return {
     configured: true,
     customers: (customersResult.data ?? []) as Customer[],
-    goals: (goalsResult.data ?? []) as FinancialGoal[],
+    goals: ((goalsResult.data ?? []) as FinancialGoal[]).filter((goal) => activeCustomerIds.has(goal.customer_id)),
     error: customersResult.error?.message || goalsResult.error?.message,
   };
 }

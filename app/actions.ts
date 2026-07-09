@@ -136,6 +136,61 @@ export async function updateCustomer(formData: FormData) {
   redirect(`/customers/${customerId}?saved=customer`);
 }
 
+export async function endCustomerService(formData: FormData) {
+  const supabase = requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const actor = requiredText(formData, "actor");
+  const reason = requiredText(formData, "service_ended_reason");
+  const payload = {
+    service_status: "inactive",
+    service_ended_at: new Date().toISOString(),
+    service_ended_reason: reason,
+  };
+
+  const { error } = await supabase.from("customers").update(payload).eq("id", customerId);
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor,
+    action: "customer_service_ended",
+    entityType: "customers",
+    entityId: customerId,
+    payload,
+  });
+
+  revalidatePath("/");
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
+  redirect("/customers?saved=service-ended");
+}
+
+export async function reactivateCustomerService(formData: FormData) {
+  const supabase = requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const actor = requiredText(formData, "actor");
+  const payload = {
+    service_status: "active",
+    service_ended_at: null,
+    service_ended_reason: null,
+  };
+
+  const { error } = await supabase.from("customers").update(payload).eq("id", customerId);
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor,
+    action: "customer_service_reactivated",
+    entityType: "customers",
+    entityId: customerId,
+    payload,
+  });
+
+  revalidatePath("/");
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/customers/${customerId}?saved=reactivated`);
+}
+
 export async function createGoal(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");

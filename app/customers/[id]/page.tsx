@@ -1,11 +1,50 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { completeNextStepAction, createGoal, createNextStepAction, logProgress, updateCustomer } from "@/app/actions";
+import { completeNextStepAction, createGoal, createNextStepAction, logProgress, updateCustomer, updateGoalPriority } from "@/app/actions";
 import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge, StatusBadge } from "@/app/ui";
 import { formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
 import { getCustomerDetail } from "@/lib/cfp/data";
 
 export const dynamic = "force-dynamic";
+
+const priorityOrder = { high: 0, medium: 1, low: 2 } as const;
+
+function progressPercent(currentAmount: number | string, targetAmount: number | string) {
+  const current = Number(currentAmount);
+  const target = Number(targetAmount);
+  if (!Number.isFinite(current) || !Number.isFinite(target) || target <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((current / target) * 100)));
+}
+
+function nextPriority(priority: string, direction: "up" | "down") {
+  const order = ["high", "medium", "low"];
+  const index = order.indexOf(priority);
+  if (index === -1) return "medium";
+  const nextIndex = direction === "up" ? Math.max(0, index - 1) : Math.min(order.length - 1, index + 1);
+  return order[nextIndex];
+}
+
+function yearsUntil(targetDate: string) {
+  const today = new Date();
+  const target = new Date(`${targetDate}T00:00:00`);
+  const years = (target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+  return Math.max(0, Math.round(years * 10) / 10);
+}
+
+function calculatorHref(goal: {
+  goal_name: string;
+  target_amount: number | string;
+  current_amount: number | string;
+  target_date: string;
+}) {
+  const params = new URLSearchParams({
+    goalName: goal.goal_name,
+    todayCost: String(goal.target_amount),
+    currentSavings: String(goal.current_amount),
+    years: String(yearsUntil(goal.target_date)),
+  });
+  return `/calculator?${params.toString()}`;
+}
 
 export default async function CustomerDetailPage({
   params,
@@ -44,6 +83,14 @@ export default async function CustomerDetailPage({
       detail: `${action.action_title} · ${action.assigned_to || "Unassigned"}`,
     })),
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const sortedGoals = (data.goals ?? []).slice().sort((a, b) => {
+    const priorityDelta =
+      (priorityOrder[a.priority as keyof typeof priorityOrder] ?? 1) -
+      (priorityOrder[b.priority as keyof typeof priorityOrder] ?? 1);
+    if (priorityDelta) return priorityDelta;
+    return new Date(a.target_date).getTime() - new Date(b.target_date).getTime();
+  });
 
   return (
     <AppShell>
@@ -185,17 +232,97 @@ export default async function CustomerDetailPage({
           </section>
 
           <section className="space-y-4">
+            <div id="goal-setting-list" className="panel p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl font-bold">Goal Setting List</h2>
+                  <p className="mt-1 text-sm text-[#68756f]">Priority order controls which goals stay at the top of this portfolio.</p>
+                </div>
+                <Link className="btn btn-secondary" href="/calculator">
+                  Open Calculator
+                </Link>
+              </div>
+
+              {sortedGoals.length ? (
+                <div className="mt-4 space-y-3">
+                  {sortedGoals.map((goal, index) => {
+                    const percent = progressPercent(goal.current_amount, goal.target_amount);
+                    const canMoveUp = goal.priority !== "high";
+                    const canMoveDown = goal.priority !== "low";
+                    return (
+                      <div key={goal.id} className="rounded-md border border-[#dce2dc] p-4">
+                        <div className="grid gap-4 lg:grid-cols-[auto_1fr_auto]">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#eef3ef] text-sm font-bold text-[#405047]">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Link className="text-lg font-bold text-[#0f766e]" href={`#goal-${goal.id}`}>
+                                {goal.goal_name}
+                              </Link>
+                              <PriorityBadge priority={goal.priority} />
+                              <StatusBadge status={goal.on_track_status} />
+                            </div>
+                            <p className="mt-1 text-sm text-[#68756f]">
+                              {goal.goal_type} - target {formatCurrency(goal.target_amount)} by {formatDate(goal.target_date)}
+                            </p>
+                            <div className="mt-3">
+                              <div className="mb-1 flex items-center justify-between text-sm">
+                                <span className="font-semibold">{formatCurrency(goal.current_amount)} saved</span>
+                                <span className="font-bold text-[#115e59]">{percent}%</span>
+                              </div>
+                              <div className="h-2 rounded-full bg-[#eef3ef]">
+                                <div className="h-2 rounded-full bg-[#0f766e]" style={{ width: `${percent}%` }} />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-start gap-2 lg:justify-end">
+                            <form action={updateGoalPriority}>
+                              <input type="hidden" name="customer_id" value={customer.id} />
+                              <input type="hidden" name="goal_id" value={goal.id} />
+                              <input type="hidden" name="priority" value={nextPriority(goal.priority, "up")} />
+                              <input type="hidden" name="actor" value={customer.assigned_advisor_name || "Advisor"} />
+                              <button className="btn btn-secondary" disabled={!canMoveUp} type="submit">
+                                Move Up
+                              </button>
+                            </form>
+                            <form action={updateGoalPriority}>
+                              <input type="hidden" name="customer_id" value={customer.id} />
+                              <input type="hidden" name="goal_id" value={goal.id} />
+                              <input type="hidden" name="priority" value={nextPriority(goal.priority, "down")} />
+                              <input type="hidden" name="actor" value={customer.assigned_advisor_name || "Advisor"} />
+                              <button className="btn btn-secondary" disabled={!canMoveDown} type="submit">
+                                Move Down
+                              </button>
+                            </form>
+                            <Link className="btn" href={calculatorHref(goal)}>
+                              Calculate Number
+                            </Link>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-4">
+                  <EmptyState title="No goals in the setting list" body="Add the first financial goal, then use the calculator to confirm its target number." />
+                </div>
+              )}
+            </div>
+
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-2xl font-bold">Goals</h2>
               <p className="text-sm text-[#68756f]">{data.goals?.length || 0} active planning goals</p>
             </div>
 
-            {data.goals?.length ? (
-              data.goals.map((goal) => {
+            {sortedGoals.length ? (
+              sortedGoals.map((goal) => {
                 const latestLog = data.latestLogsByGoal?.[goal.id];
                 const goalActions = actionsByGoal.get(goal.id) ?? [];
                 const openGoalActions = goalActions.filter((action) => !action.completed);
                 const completedGoalActions = goalActions.filter((action) => action.completed);
+                const percent = progressPercent(goal.current_amount, goal.target_amount);
                 return (
                   <article id={`goal-${goal.id}`} key={goal.id} className="panel p-5">
                     <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
@@ -209,14 +336,28 @@ export default async function CustomerDetailPage({
                           {goal.goal_type} · {formatCurrency(goal.current_amount)} of {formatCurrency(goal.target_amount)} · target{" "}
                           {formatDate(goal.target_date)}
                         </p>
+                        <div className="mt-3 max-w-xl">
+                          <div className="mb-1 flex items-center justify-between text-sm">
+                            <span className="font-semibold">Goal progress</span>
+                            <span className="font-bold text-[#115e59]">{percent}%</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-[#eef3ef]">
+                            <div className="h-2 rounded-full bg-[#0f766e]" style={{ width: `${percent}%` }} />
+                          </div>
+                        </div>
                         <p className="mt-3 text-sm text-[#405047]">
                           <span className="font-bold">Last progress note: </span>
                           {latestLog?.notes || "No progress logged yet"}
                         </p>
                       </div>
-                      <Link className="btn btn-secondary" href={`/customers/${customer.id}/goals/${goal.id}`}>
-                        View History
-                      </Link>
+                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                        <Link className="btn btn-secondary" href={calculatorHref(goal)}>
+                          Calculate Number
+                        </Link>
+                        <Link className="btn btn-secondary" href={`/customers/${customer.id}/goals/${goal.id}`}>
+                          View History
+                        </Link>
+                      </div>
                     </div>
 
                     <div className="mt-5 grid gap-4 lg:grid-cols-2">

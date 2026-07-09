@@ -242,6 +242,40 @@ export async function createNextStepAction(formData: FormData) {
   redirect(`/customers/${customerId}?saved=action${goalId ? `#goal-${goalId}` : ""}`);
 }
 
+export async function updateGoalPriority(formData: FormData) {
+  const supabase = requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const goalId = requiredText(formData, "goal_id");
+  const priority = requiredText(formData, "priority");
+  const actor = text(formData, "actor");
+
+  if (!["high", "medium", "low"].includes(priority)) {
+    throw new Error("Priority must be high, medium, or low.");
+  }
+
+  const { data: goal, error: goalError } = await supabase
+    .from("financial_goals")
+    .select("priority")
+    .eq("id", goalId)
+    .single();
+  if (goalError) throw new Error(goalError.message);
+
+  const { error } = await supabase.from("financial_goals").update({ priority }).eq("id", goalId);
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor,
+    action: "goal_priority_updated",
+    entityType: "financial_goals",
+    entityId: goalId,
+    payload: { previous_priority: goal.priority, priority },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/customers/${customerId}?saved=priority#goal-setting-list`);
+}
+
 export async function completeNextStepAction(formData: FormData) {
   const supabase = requireSupabase();
   const actionId = requiredText(formData, "action_id");

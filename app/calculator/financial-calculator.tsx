@@ -100,7 +100,14 @@ function solvePeriods(input: {
   return (low + high) / 2;
 }
 
-export function FinancialCalculator() {
+type InitialGoal = {
+  goalName?: string;
+  todayCost?: string;
+  currentSavings?: string;
+  years?: string;
+};
+
+export function FinancialCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
   const [activeTab, setActiveTab] = useState<"goal" | "tvm">("goal");
 
   return (
@@ -121,16 +128,16 @@ export function FinancialCalculator() {
           TVM Solver
         </button>
       </div>
-      {activeTab === "goal" ? <GoalNumberCalculator /> : <TvmCalculator />}
+      {activeTab === "goal" ? <GoalNumberCalculator initialGoal={initialGoal} /> : <TvmCalculator initialGoal={initialGoal} />}
     </div>
   );
 }
 
-function GoalNumberCalculator() {
-  const [todayCost, setTodayCost] = useState("1000000");
-  const [years, setYears] = useState("10");
+function GoalNumberCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
+  const [todayCost, setTodayCost] = useState(initialGoal?.todayCost || "1000000");
+  const [years, setYears] = useState(initialGoal?.years || "10");
   const [inflationRate, setInflationRate] = useState("3");
-  const [currentSavings, setCurrentSavings] = useState("150000");
+  const [currentSavings, setCurrentSavings] = useState(initialGoal?.currentSavings || "150000");
   const [expectedReturn, setExpectedReturn] = useState("6");
   const [frequency, setFrequency] = useState("12");
   const [mode, setMode] = useState<PaymentMode>("end");
@@ -172,6 +179,9 @@ function GoalNumberCalculator() {
     <section className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
       <div className="panel p-5">
         <h2 className="text-xl font-bold">Find the client&apos;s goal number</h2>
+        {initialGoal?.goalName ? (
+          <p className="mt-1 text-sm font-semibold text-[#68756f]">Loaded from goal: {initialGoal.goalName}</p>
+        ) : null}
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="field">
             <span className="label">Today&apos;s cost</span>
@@ -230,13 +240,13 @@ function GoalNumberCalculator() {
   );
 }
 
-function TvmCalculator() {
+function TvmCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
   const [solveFor, setSolveFor] = useState<SolveFor>("futureValue");
-  const [presentValue, setPresentValue] = useState("100000");
+  const [presentValue, setPresentValue] = useState(initialGoal?.currentSavings || "100000");
   const [payment, setPayment] = useState("1000");
-  const [futureTarget, setFutureTarget] = useState("250000");
+  const [futureTarget, setFutureTarget] = useState(initialGoal?.todayCost || "250000");
   const [annualRate, setAnnualRate] = useState("6");
-  const [periods, setPeriods] = useState("120");
+  const [periods, setPeriods] = useState(String(Math.max(1, Math.round(numberValue(initialGoal?.years || "10") * 12))));
   const [frequency, setFrequency] = useState("12");
   const [mode, setMode] = useState<PaymentMode>("end");
 
@@ -279,6 +289,9 @@ function TvmCalculator() {
     <section className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
       <div className="panel p-5">
         <h2 className="text-xl font-bold">Time value of money solver</h2>
+        {initialGoal?.goalName ? (
+          <p className="mt-1 text-sm font-semibold text-[#68756f]">Loaded from goal: {initialGoal.goalName}</p>
+        ) : null}
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="field md:col-span-2">
             <span className="label">Solve for</span>

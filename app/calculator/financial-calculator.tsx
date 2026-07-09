@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { formatCurrency } from "@/lib/cfp/format";
+import { FundingSourcesEditor, defaultFundingSources, fundingSourcesAmount, fundingSourcesTotal } from "./funding-sources";
 
 type SolveFor = "futureValue" | "presentValue" | "payment" | "annualRate" | "periods";
 type PaymentMode = "end" | "beginning";
@@ -137,7 +138,7 @@ function GoalNumberCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
   const [todayCost, setTodayCost] = useState(initialGoal?.todayCost || "1000000");
   const [years, setYears] = useState(initialGoal?.years || "10");
   const [inflationRate, setInflationRate] = useState("3");
-  const [currentSavings, setCurrentSavings] = useState(initialGoal?.currentSavings || "150000");
+  const [fundingSources, setFundingSources] = useState(() => defaultFundingSources(initialGoal?.currentSavings || "150000"));
   const [expectedReturn, setExpectedReturn] = useState("6");
   const [frequency, setFrequency] = useState("12");
   const [mode, setMode] = useState<PaymentMode>("end");
@@ -146,18 +147,12 @@ function GoalNumberCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
     const periodsPerYear = numberValue(frequency);
     const totalPeriods = Math.max(0, numberValue(years) * periodsPerYear);
     const futureGoal = numberValue(todayCost) * Math.pow(1 + numberValue(inflationRate) / 100, numberValue(years));
-    const futureCurrentSavings = futureValue({
-      presentValue: numberValue(currentSavings),
-      payment: 0,
-      annualRate: numberValue(expectedReturn),
-      periods: totalPeriods,
-      compoundsPerYear: periodsPerYear,
-      mode: "end",
-    });
+    const currentSavings = fundingSourcesAmount(fundingSources);
+    const futureCurrentSavings = fundingSourcesTotal(fundingSources, numberValue(years));
     const requiredPayment = Math.max(
       0,
       paymentForTarget({
-        presentValue: numberValue(currentSavings),
+        presentValue: 0,
         targetFutureValue: futureGoal,
         annualRate: numberValue(expectedReturn),
         periods: totalPeriods,
@@ -171,9 +166,10 @@ function GoalNumberCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
       gap: Math.max(0, futureGoal - futureCurrentSavings),
       requiredPayment,
       annualContribution: requiredPayment * periodsPerYear,
+      currentSavings,
       totalPeriods,
     };
-  }, [currentSavings, expectedReturn, frequency, inflationRate, mode, todayCost, years]);
+  }, [expectedReturn, frequency, fundingSources, inflationRate, mode, todayCost, years]);
 
   return (
     <section className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
@@ -200,10 +196,6 @@ function GoalNumberCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
             <input className="input" value={expectedReturn} onChange={(event) => setExpectedReturn(event.target.value)} type="number" step="0.1" />
           </label>
           <label className="field">
-            <span className="label">Current savings</span>
-            <input className="input" value={currentSavings} onChange={(event) => setCurrentSavings(event.target.value)} type="number" min="0" />
-          </label>
-          <label className="field">
             <span className="label">Contribution frequency</span>
             <select className="input" value={frequency} onChange={(event) => setFrequency(event.target.value)}>
               {frequencyOptions.map((option) => (
@@ -220,6 +212,9 @@ function GoalNumberCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
               <option value="beginning">Beginning of period</option>
             </select>
           </label>
+          <div className="md:col-span-2">
+            <FundingSourcesEditor sources={fundingSources} years={numberValue(years)} onChange={setFundingSources} />
+          </div>
         </div>
       </div>
 

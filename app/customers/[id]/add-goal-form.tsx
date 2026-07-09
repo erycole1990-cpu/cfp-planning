@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { createGoal } from "@/app/actions";
 import { formatCurrency } from "@/lib/cfp/format";
+import { FundingSourcesEditor, defaultFundingSources, fundingSourcesAmount, fundingSourcesTotal } from "@/app/calculator/funding-sources";
 
 function numeric(value: string) {
   const parsed = Number(value);
@@ -30,19 +31,21 @@ export function AddGoalForm({
   const [todayCost, setTodayCost] = useState("30000");
   const [years, setYears] = useState("10");
   const [inflationRate, setInflationRate] = useState("3");
-  const [currentSavingsReturn, setCurrentSavingsReturn] = useState("3");
+  const [fundingSources, setFundingSources] = useState(() => defaultFundingSources("0"));
   const [newMoneyReturn, setNewMoneyReturn] = useState("6");
 
   const result = useMemo(() => {
     const futureCost = numeric(todayCost) * Math.pow(1 + numeric(inflationRate) / 100, numeric(years));
-    const futureSavings = numeric(currentAmount) * Math.pow(1 + numeric(currentSavingsReturn) / 100, numeric(years));
+    const sourceTotalNow = fundingSourcesAmount(fundingSources);
+    const futureSavings = fundingSourcesTotal(fundingSources, numeric(years));
     return {
       futureCost,
       futureSavings,
+      sourceTotalNow,
       gap: Math.max(0, futureCost - futureSavings),
       monthlyContribution: monthlyContribution(Math.max(0, futureCost - futureSavings), numeric(years), numeric(newMoneyReturn)),
     };
-  }, [currentAmount, currentSavingsReturn, inflationRate, newMoneyReturn, todayCost, years]);
+  }, [fundingSources, inflationRate, newMoneyReturn, todayCost, years]);
 
   return (
     <form action={createGoal} className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -113,22 +116,15 @@ export function AddGoalForm({
             <input className="input" type="number" step="0.1" value={inflationRate} onChange={(event) => setInflationRate(event.target.value)} />
           </label>
           <label className="field">
-            <span className="label">Current savings return (%)</span>
-            <input
-              className="input"
-              type="number"
-              step="0.1"
-              value={currentSavingsReturn}
-              onChange={(event) => setCurrentSavingsReturn(event.target.value)}
-            />
-          </label>
-          <label className="field">
             <span className="label">New money return (%)</span>
             <input className="input" type="number" step="0.1" value={newMoneyReturn} onChange={(event) => setNewMoneyReturn(event.target.value)} />
           </label>
+          <div className="sm:col-span-2">
+            <FundingSourcesEditor sources={fundingSources} years={numeric(years)} onChange={setFundingSources} />
+          </div>
         </div>
         <p className="mt-3 text-sm text-[#68756f]">
-          Current amount is reused as the savings already set aside for this goal. Use current savings return for where that money sits today; use new money return for planning future contributions.
+          Current amount can reflect the total funding sources already available. Use new money return for planning future contributions.
         </p>
         <div className="mt-4 grid gap-3 rounded-md bg-[#f7f8f5] p-4 text-sm sm:grid-cols-4">
           <div>
@@ -136,7 +132,7 @@ export function AddGoalForm({
             <p className="mt-1 text-lg font-bold">{formatCurrency(result.futureCost)}</p>
           </div>
           <div>
-            <p className="font-bold uppercase text-[#68756f]">Savings at date</p>
+            <p className="font-bold uppercase text-[#68756f]">Sources at date</p>
             <p className="mt-1 text-lg font-bold">{formatCurrency(result.futureSavings)}</p>
           </div>
           <div>
@@ -149,6 +145,13 @@ export function AddGoalForm({
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={() => setCurrentAmount(String(Math.round(result.sourceTotalNow)))}
+          >
+            Use Sources as Current Amount
+          </button>
           <button className="btn" type="button" onClick={() => setTargetAmount(String(Math.round(result.futureCost)))}>
             Use Future Cost
           </button>

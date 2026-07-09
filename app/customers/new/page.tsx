@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createCustomer } from "@/app/actions";
 import { AppShell, PageHeader } from "@/app/ui";
+import { RiskProfileField } from "@/app/customers/risk-profile-field";
 
 export default function NewCustomerPage() {
   return (
@@ -111,14 +112,7 @@ export default function NewCustomerPage() {
         <div className="border-t border-[#dce2dc] pt-4 md:col-span-2">
           <h2 className="text-lg font-bold">Planning assignment</h2>
         </div>
-        <label className="field">
-          <span className="label">Risk profile</span>
-          <select className="input" name="risk_profile" required defaultValue="moderate">
-            <option value="conservative">Conservative</option>
-            <option value="moderate">Moderate</option>
-            <option value="aggressive">Aggressive</option>
-          </select>
-        </label>
+        <RiskProfileField defaultValue="moderate" />
         <label className="field md:col-span-2">
           <span className="label">Assigned advisor</span>
           <input className="input" name="assigned_advisor_name" required placeholder="Advisor name" />

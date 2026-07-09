@@ -13,6 +13,7 @@ import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge
 import { formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
 import { getCustomerDetail } from "@/lib/cfp/data";
 import { AddGoalForm } from "./add-goal-form";
+import { RiskProfileField } from "@/app/customers/risk-profile-field";
 
 export const dynamic = "force-dynamic";
 
@@ -321,14 +322,7 @@ export default async function CustomerDetailPage({
                   <div className="border-t border-[#dce2dc] pt-4 sm:col-span-2">
                     <h3 className="font-bold">Planning assignment</h3>
                   </div>
-                  <label className="field">
-                    <span className="label">Risk</span>
-                    <select className="input" name="risk_profile" required defaultValue={customer.risk_profile || "moderate"}>
-                      <option value="conservative">Conservative</option>
-                      <option value="moderate">Moderate</option>
-                      <option value="aggressive">Aggressive</option>
-                    </select>
-                  </label>
+                  <RiskProfileField defaultValue={customer.risk_profile || "moderate"} />
                   <label className="field sm:col-span-2">
                     <span className="label">Advisor</span>
                     <input className="input" name="assigned_advisor_name" required defaultValue={customer.assigned_advisor_name || ""} />

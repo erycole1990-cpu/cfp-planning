@@ -16,6 +16,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/customers">
               Customers
             </Link>
+            <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/calculator">
+              Calculator
+            </Link>
             <Link className="btn" href="/customers/new">
               Add Customer
             </Link>

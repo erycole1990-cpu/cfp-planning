@@ -9,6 +9,13 @@ function numeric(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function monthlyContribution(gap: number, years: number, annualReturn: number) {
+  const months = Math.max(1, Math.round(years * 12));
+  const monthlyRate = annualReturn / 100 / 12;
+  if (Math.abs(monthlyRate) < 0.0000001) return gap / months;
+  return gap / (((Math.pow(1 + monthlyRate, months) - 1) / monthlyRate));
+}
+
 export function AddGoalForm({
   customerId,
   actor,
@@ -23,18 +30,19 @@ export function AddGoalForm({
   const [todayCost, setTodayCost] = useState("30000");
   const [years, setYears] = useState("10");
   const [inflationRate, setInflationRate] = useState("3");
-  const [currentSavings, setCurrentSavings] = useState("0");
-  const [expectedReturn, setExpectedReturn] = useState("6");
+  const [currentSavingsReturn, setCurrentSavingsReturn] = useState("3");
+  const [newMoneyReturn, setNewMoneyReturn] = useState("6");
 
   const result = useMemo(() => {
     const futureCost = numeric(todayCost) * Math.pow(1 + numeric(inflationRate) / 100, numeric(years));
-    const futureSavings = numeric(currentSavings) * Math.pow(1 + numeric(expectedReturn) / 100, numeric(years));
+    const futureSavings = numeric(currentAmount) * Math.pow(1 + numeric(currentSavingsReturn) / 100, numeric(years));
     return {
       futureCost,
       futureSavings,
       gap: Math.max(0, futureCost - futureSavings),
+      monthlyContribution: monthlyContribution(Math.max(0, futureCost - futureSavings), numeric(years), numeric(newMoneyReturn)),
     };
-  }, [currentSavings, expectedReturn, inflationRate, todayCost, years]);
+  }, [currentAmount, currentSavingsReturn, inflationRate, newMoneyReturn, todayCost, years]);
 
   return (
     <form action={createGoal} className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -85,10 +93,7 @@ export function AddGoalForm({
           step="1"
           type="number"
           value={currentAmount}
-          onChange={(event) => {
-            setCurrentAmount(event.target.value);
-            setCurrentSavings(event.target.value);
-          }}
+          onChange={(event) => setCurrentAmount(event.target.value)}
         />
       </label>
 
@@ -108,15 +113,24 @@ export function AddGoalForm({
             <input className="input" type="number" step="0.1" value={inflationRate} onChange={(event) => setInflationRate(event.target.value)} />
           </label>
           <label className="field">
-            <span className="label">Expected return (%)</span>
-            <input className="input" type="number" step="0.1" value={expectedReturn} onChange={(event) => setExpectedReturn(event.target.value)} />
+            <span className="label">Current savings return (%)</span>
+            <input
+              className="input"
+              type="number"
+              step="0.1"
+              value={currentSavingsReturn}
+              onChange={(event) => setCurrentSavingsReturn(event.target.value)}
+            />
           </label>
-          <label className="field sm:col-span-2">
-            <span className="label">Current savings for this goal</span>
-            <input className="input" type="number" min="0" value={currentSavings} onChange={(event) => setCurrentSavings(event.target.value)} />
+          <label className="field">
+            <span className="label">New money return (%)</span>
+            <input className="input" type="number" step="0.1" value={newMoneyReturn} onChange={(event) => setNewMoneyReturn(event.target.value)} />
           </label>
         </div>
-        <div className="mt-4 grid gap-3 rounded-md bg-[#f7f8f5] p-4 text-sm sm:grid-cols-3">
+        <p className="mt-3 text-sm text-[#68756f]">
+          Current amount is reused as the savings already set aside for this goal. Use current savings return for where that money sits today; use new money return for planning future contributions.
+        </p>
+        <div className="mt-4 grid gap-3 rounded-md bg-[#f7f8f5] p-4 text-sm sm:grid-cols-4">
           <div>
             <p className="font-bold uppercase text-[#68756f]">Future cost</p>
             <p className="mt-1 text-lg font-bold">{formatCurrency(result.futureCost)}</p>
@@ -128,6 +142,10 @@ export function AddGoalForm({
           <div>
             <p className="font-bold uppercase text-[#68756f]">Funding gap</p>
             <p className="mt-1 text-lg font-bold text-[#115e59]">{formatCurrency(result.gap)}</p>
+          </div>
+          <div>
+            <p className="font-bold uppercase text-[#68756f]">Monthly needed</p>
+            <p className="mt-1 text-lg font-bold text-[#115e59]">{formatCurrency(result.monthlyContribution)}</p>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">

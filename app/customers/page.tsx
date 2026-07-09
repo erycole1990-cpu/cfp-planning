@@ -10,18 +10,42 @@ function customerFilter(value: string | undefined): CustomerServiceFilter {
   return "active";
 }
 
-function filterHref(filter: CustomerServiceFilter) {
-  return filter === "active" ? "/customers" : `/customers?status=${filter}`;
+function filterHref(filter: CustomerServiceFilter, search: string) {
+  const params = new URLSearchParams();
+  if (filter !== "active") params.set("status", filter);
+  if (search) params.set("q", search);
+  const query = params.toString();
+  return query ? `/customers?${query}` : "/customers";
+}
+
+function matchesSearch(customer: Awaited<ReturnType<typeof getCustomersData>>["customers"][number], search: string) {
+  if (!search) return true;
+  const haystack = [
+    customer.full_name,
+    customer.email,
+    customer.phone,
+    customer.assigned_advisor_name,
+    customer.risk_profile,
+    customer.service_status,
+    customer.service_ended_reason,
+    customer.nric_passport,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(search.toLowerCase());
 }
 
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ status?: string; saved?: string }>;
+  searchParams?: Promise<{ status?: string; saved?: string; q?: string }>;
 }) {
   const query = (await searchParams) ?? {};
   const filter = customerFilter(query.status);
+  const search = String(query.q ?? "").trim();
   const data = await getCustomersData(filter);
+  const customers = data.customers.filter((customer) => matchesSearch(customer, search));
   const goalsByCustomer = new Map<string, typeof data.goals>();
   for (const goal of data.goals) {
     const list = goalsByCustomer.get(goal.customer_id) ?? [];
@@ -71,15 +95,33 @@ export default async function CustomersPage({
           <Link
             key={value}
             className={filter === value ? "btn" : "btn btn-secondary"}
-            href={filterHref(value as CustomerServiceFilter)}
+            href={filterHref(value as CustomerServiceFilter, search)}
           >
             {label}
           </Link>
         ))}
       </nav>
 
+      <form action="/customers" className="mb-4 grid gap-3 rounded-md border border-[#dce2dc] bg-white p-4 md:grid-cols-[1fr_auto_auto]">
+        {filter !== "active" ? <input type="hidden" name="status" value={filter} /> : null}
+        <label className="field">
+          <span className="label">Search customers</span>
+          <input className="input" name="q" defaultValue={search} placeholder="Name, email, phone, advisor, NRIC/passport" />
+        </label>
+        <div className="flex items-end">
+          <button className="btn w-full" type="submit">
+            Search
+          </button>
+        </div>
+        <div className="flex items-end">
+          <Link className="btn btn-secondary w-full text-center" href={filterHref(filter, "")}>
+            Clear
+          </Link>
+        </div>
+      </form>
+
       {data.configured ? (
-        data.customers.length ? (
+        customers.length ? (
           <section className="panel table-wrap">
             <table className="data-table">
               <thead>
@@ -94,7 +136,7 @@ export default async function CustomersPage({
                 </tr>
               </thead>
               <tbody>
-                {data.customers.map((customer) => {
+                {customers.map((customer) => {
                   const goals = goalsByCustomer.get(customer.id) ?? [];
                   const highestConcern =
                     goals.find((goal) => goal.on_track_status === "off_track") ||
@@ -127,11 +169,11 @@ export default async function CustomersPage({
           </section>
         ) : (
           <EmptyState
-            title={emptyCopy.title}
-            body={emptyCopy.body}
+            title={search ? "No customers found" : emptyCopy.title}
+            body={search ? "Try a different name, email, advisor, phone, or NRIC/passport search." : emptyCopy.body}
             action={
-              <Link className="btn" href="/customers/new">
-                Add Customer
+              <Link className="btn" href={search ? filterHref(filter, "") : "/customers/new"}>
+                {search ? "Clear Search" : "Add Customer"}
               </Link>
             }
           />

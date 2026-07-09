@@ -61,7 +61,35 @@ function calculatorHref(goal: {
 
 function monthlyEquivalent(item: FinancialStatementItem) {
   const amount = Number(item.amount) || 0;
-  return item.frequency === "annual" ? amount / 12 : amount;
+  switch (item.frequency) {
+    case "weekly":
+      return (amount * 52) / 12;
+    case "quarterly":
+      return amount / 3;
+    case "annual":
+      return amount / 12;
+    case "one_time":
+      return 0;
+    default:
+      return amount;
+  }
+}
+
+function frequencyLabel(frequency: string | null) {
+  switch (frequency) {
+    case "weekly":
+      return "weekly";
+    case "quarterly":
+      return "quarterly";
+    case "annual":
+      return "annual";
+    case "one_time":
+      return "one-time";
+    case "current":
+      return "current value";
+    default:
+      return "monthly";
+  }
 }
 
 function sumStatement(items: FinancialStatementItem[], statementType: string, itemTypes: string[], monthly = false) {
@@ -132,7 +160,10 @@ function StatementSection({
             {showFrequency ? (
               <>
                 <option value="monthly">Monthly</option>
+                <option value="weekly">Weekly</option>
+                <option value="quarterly">Quarterly</option>
                 <option value="annual">Annual</option>
+                <option value="one_time">One-time</option>
               </>
             ) : (
               <option value="current">Current value</option>
@@ -166,7 +197,7 @@ function StatementSection({
                 <td>{item.description}</td>
                 <td>
                   {formatCurrency(item.amount)}
-                  {showFrequency ? <p className="text-sm text-[#68756f]">{item.frequency || "monthly"}</p> : null}
+                  {showFrequency ? <p className="text-sm text-[#68756f]">{frequencyLabel(item.frequency)}</p> : null}
                 </td>
                 <td>{formatCurrency(showFrequency ? monthlyEquivalent(item) : item.amount)}</td>
                 <td>
@@ -580,7 +611,46 @@ export default async function CustomerDetailPage({
                   { value: "income", label: "Income" },
                   { value: "expense", label: "Expense" },
                 ]}
-                categories={["Salary", "Bonus", "Rental", "Investment Income", "Household", "Loan Repayment", "Insurance", "Education", "Lifestyle", "Other"]}
+                categories={[
+                  "Active Income",
+                  "Salary",
+                  "Bonus",
+                  "Part Time Income",
+                  "Passive Income",
+                  "Rental Income",
+                  "Investment Income",
+                  "Business Income",
+                  "Royalty Income",
+                  "Income Deduction",
+                  "Income Tax",
+                  "EPF / Statutory Deduction",
+                  "Home Expenses",
+                  "Home / Rental Insurance",
+                  "Utilities",
+                  "Groceries / Food",
+                  "Loan Repayment",
+                  "Housing Loan",
+                  "Car Loan",
+                  "Credit Card",
+                  "Education Loan",
+                  "Personal Loan",
+                  "Auto Insurance",
+                  "Insurance",
+                  "Medical / Healthcare",
+                  "Education",
+                  "Personal Expenses",
+                  "Family Expenses",
+                  "Parents Support",
+                  "Childcare",
+                  "Lifestyle",
+                  "Travel",
+                  "Celebration / Festival",
+                  "CNY Expenses",
+                  "Gifts / Donations",
+                  "Savings / Investment",
+                  "Other Income",
+                  "Other Expenses",
+                ]}
               />
               <StatementSection
                 title="Profit and Loss Statement"

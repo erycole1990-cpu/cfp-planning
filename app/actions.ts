@@ -30,6 +30,14 @@ function numberValue(formData: FormData, key: string) {
   return value;
 }
 
+function optionalWholeNumber(formData: FormData, key: string) {
+  const raw = text(formData, key);
+  if (raw === null) return null;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${key} must be a whole number.`);
+  return value;
+}
+
 async function writeAudit(input: {
   actor?: string | null;
   action: string;
@@ -55,6 +63,17 @@ export async function createCustomer(formData: FormData) {
     email: text(formData, "email"),
     phone: text(formData, "phone"),
     date_of_birth: text(formData, "date_of_birth"),
+    nric_passport: text(formData, "nric_passport"),
+    nationality: text(formData, "nationality"),
+    marital_status: text(formData, "marital_status"),
+    number_of_dependents: optionalWholeNumber(formData, "number_of_dependents"),
+    residential_address: text(formData, "residential_address"),
+    employment_status: text(formData, "employment_status"),
+    occupation: text(formData, "occupation"),
+    employer_name: text(formData, "employer_name"),
+    monthly_income_range: text(formData, "monthly_income_range"),
+    source_of_funds: text(formData, "source_of_funds"),
+    source_of_wealth: text(formData, "source_of_wealth"),
     risk_profile: requiredText(formData, "risk_profile"),
     assigned_advisor_name: requiredText(formData, "assigned_advisor_name"),
     notes: text(formData, "notes"),
@@ -84,6 +103,17 @@ export async function updateCustomer(formData: FormData) {
     email: text(formData, "email"),
     phone: text(formData, "phone"),
     date_of_birth: text(formData, "date_of_birth"),
+    nric_passport: text(formData, "nric_passport"),
+    nationality: text(formData, "nationality"),
+    marital_status: text(formData, "marital_status"),
+    number_of_dependents: optionalWholeNumber(formData, "number_of_dependents"),
+    residential_address: text(formData, "residential_address"),
+    employment_status: text(formData, "employment_status"),
+    occupation: text(formData, "occupation"),
+    employer_name: text(formData, "employer_name"),
+    monthly_income_range: text(formData, "monthly_income_range"),
+    source_of_funds: text(formData, "source_of_funds"),
+    source_of_wealth: text(formData, "source_of_wealth"),
     risk_profile: requiredText(formData, "risk_profile"),
     assigned_advisor_name: requiredText(formData, "assigned_advisor_name"),
     notes: text(formData, "notes"),

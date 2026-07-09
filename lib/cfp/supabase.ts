@@ -7,6 +7,17 @@ export type Customer = {
   email: string | null;
   phone: string | null;
   date_of_birth: string | null;
+  nric_passport: string | null;
+  nationality: string | null;
+  marital_status: string | null;
+  number_of_dependents: number | null;
+  residential_address: string | null;
+  employment_status: string | null;
+  occupation: string | null;
+  employer_name: string | null;
+  monthly_income_range: string | null;
+  source_of_funds: string | null;
+  source_of_wealth: string | null;
   risk_profile: string | null;
   assigned_advisor_name: string | null;
   notes: string | null;

@@ -140,6 +140,50 @@ export default async function CustomerDetailPage({
                   <dt className="font-bold text-[#68756f]">Risk</dt>
                   <dd className="capitalize">{customer.risk_profile || "Not set"}</dd>
                 </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">NRIC / Passport</dt>
+                  <dd>{customer.nric_passport || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">Nationality</dt>
+                  <dd>{customer.nationality || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">Marital status</dt>
+                  <dd>{customer.marital_status || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">Dependents</dt>
+                  <dd>{customer.number_of_dependents ?? "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">Employment</dt>
+                  <dd>{customer.employment_status || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">Occupation</dt>
+                  <dd>{customer.occupation || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">Employer / Business</dt>
+                  <dd>{customer.employer_name || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">Monthly income</dt>
+                  <dd>{customer.monthly_income_range || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">Source of funds</dt>
+                  <dd>{customer.source_of_funds || "Not set"}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold text-[#68756f]">Source of wealth</dt>
+                  <dd>{customer.source_of_wealth || "Not set"}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="font-bold text-[#68756f]">Residential address</dt>
+                  <dd className="whitespace-pre-line">{customer.residential_address || "Not set"}</dd>
+                </div>
               </dl>
               <p className="mt-4 text-sm text-[#405047]">{customer.notes || "No customer notes yet."}</p>
 
@@ -147,6 +191,9 @@ export default async function CustomerDetailPage({
                 <summary className="cursor-pointer font-bold">Edit customer</summary>
                 <form action={updateCustomer} className="mt-4 grid gap-3 sm:grid-cols-2">
                   <input type="hidden" name="customer_id" value={customer.id} />
+                  <div className="sm:col-span-2">
+                    <h3 className="font-bold">Personal particulars</h3>
+                  </div>
                   <label className="field sm:col-span-2">
                     <span className="label">Full name</span>
                     <input className="input" name="full_name" required defaultValue={customer.full_name} />
@@ -163,6 +210,89 @@ export default async function CustomerDetailPage({
                     <span className="label">DOB</span>
                     <input className="input" name="date_of_birth" type="date" defaultValue={customer.date_of_birth || ""} />
                   </label>
+                  <label className="field">
+                    <span className="label">NRIC / Passport</span>
+                    <input className="input" name="nric_passport" defaultValue={customer.nric_passport || ""} />
+                  </label>
+                  <label className="field">
+                    <span className="label">Nationality</span>
+                    <input className="input" name="nationality" defaultValue={customer.nationality || ""} />
+                  </label>
+                  <label className="field">
+                    <span className="label">Marital status</span>
+                    <select className="input" name="marital_status" defaultValue={customer.marital_status || ""}>
+                      <option value="">Not set</option>
+                      <option>Single</option>
+                      <option>Married</option>
+                      <option>Divorced</option>
+                      <option>Widowed</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span className="label">Dependents</span>
+                    <input
+                      className="input"
+                      name="number_of_dependents"
+                      type="number"
+                      min="0"
+                      step="1"
+                      defaultValue={customer.number_of_dependents ?? ""}
+                    />
+                  </label>
+                  <label className="field sm:col-span-2">
+                    <span className="label">Residential address</span>
+                    <textarea className="input min-h-24" name="residential_address" defaultValue={customer.residential_address || ""} />
+                  </label>
+
+                  <div className="border-t border-[#dce2dc] pt-4 sm:col-span-2">
+                    <h3 className="font-bold">Employment and financial background</h3>
+                  </div>
+                  <label className="field">
+                    <span className="label">Employment status</span>
+                    <select className="input" name="employment_status" defaultValue={customer.employment_status || ""}>
+                      <option value="">Not set</option>
+                      <option>Employed</option>
+                      <option>Self-employed / Business owner</option>
+                      <option>Professional</option>
+                      <option>Retired</option>
+                      <option>Homemaker</option>
+                      <option>Student</option>
+                      <option>Unemployed</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span className="label">Occupation</span>
+                    <input className="input" name="occupation" defaultValue={customer.occupation || ""} />
+                  </label>
+                  <label className="field">
+                    <span className="label">Employer / Business name</span>
+                    <input className="input" name="employer_name" defaultValue={customer.employer_name || ""} />
+                  </label>
+                  <label className="field">
+                    <span className="label">Monthly income range</span>
+                    <select className="input" name="monthly_income_range" defaultValue={customer.monthly_income_range || ""}>
+                      <option value="">Not set</option>
+                      <option>Up to RM1,500</option>
+                      <option>RM1,501 - RM3,000</option>
+                      <option>RM3,001 - RM5,000</option>
+                      <option>RM5,001 - RM8,000</option>
+                      <option>RM8,001 - RM15,000</option>
+                      <option>RM15,001 - RM25,000</option>
+                      <option>Above RM25,000</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span className="label">Source of funds</span>
+                    <input className="input" name="source_of_funds" defaultValue={customer.source_of_funds || ""} />
+                  </label>
+                  <label className="field">
+                    <span className="label">Source of wealth</span>
+                    <input className="input" name="source_of_wealth" defaultValue={customer.source_of_wealth || ""} />
+                  </label>
+
+                  <div className="border-t border-[#dce2dc] pt-4 sm:col-span-2">
+                    <h3 className="font-bold">Planning assignment</h3>
+                  </div>
                   <label className="field">
                     <span className="label">Risk</span>
                     <select className="input" name="risk_profile" required defaultValue={customer.risk_profile || "moderate"}>

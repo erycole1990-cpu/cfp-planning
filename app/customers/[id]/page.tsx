@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { completeNextStepAction, createGoal, createNextStepAction, logProgress, updateCustomer, updateGoalPriority } from "@/app/actions";
+import { completeNextStepAction, createNextStepAction, logProgress, updateCustomer, updateGoalPriority } from "@/app/actions";
 import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge, StatusBadge } from "@/app/ui";
 import { formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
 import { getCustomerDetail } from "@/lib/cfp/data";
+import { AddGoalForm } from "./add-goal-form";
 
 export const dynamic = "force-dynamic";
 
@@ -187,47 +188,7 @@ export default async function CustomerDetailPage({
 
             <div className="panel p-5">
               <h2 className="text-xl font-bold">Add financial goal</h2>
-              <form action={createGoal} className="mt-4 grid gap-3 sm:grid-cols-2">
-                <input type="hidden" name="customer_id" value={customer.id} />
-                <input type="hidden" name="actor" value={customer.assigned_advisor_name || "Advisor"} />
-                <label className="field">
-                  <span className="label">Goal type</span>
-                  <select className="input" name="goal_type" required defaultValue="Retirement">
-                    <option>Retirement</option>
-                    <option>Education</option>
-                    <option>Emergency Fund</option>
-                    <option>Wealth Accumulation</option>
-                    <option>Protection</option>
-                  </select>
-                </label>
-                <label className="field">
-                  <span className="label">Priority</span>
-                  <select className="input" name="priority" required defaultValue="medium">
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                </label>
-                <label className="field sm:col-span-2">
-                  <span className="label">Goal name</span>
-                  <input className="input" name="goal_name" required placeholder="Retire with income floor" />
-                </label>
-                <label className="field">
-                  <span className="label">Target amount</span>
-                  <input className="input" name="target_amount" required min="1" step="1" type="number" />
-                </label>
-                <label className="field">
-                  <span className="label">Current amount</span>
-                  <input className="input" name="current_amount" required min="0" step="1" type="number" defaultValue="0" />
-                </label>
-                <label className="field">
-                  <span className="label">Target date</span>
-                  <input className="input" name="target_date" required min={today} type="date" />
-                </label>
-                <button className="btn self-end" type="submit">
-                  Add Goal
-                </button>
-              </form>
+              <AddGoalForm customerId={customer.id} actor={customer.assigned_advisor_name || "Advisor"} today={today} />
             </div>
           </section>
 

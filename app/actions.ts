@@ -210,6 +210,7 @@ export async function createFinancialStatementItem(formData: FormData) {
     description: requiredText(formData, "description"),
     amount: numberValue(formData, "amount"),
     frequency: text(formData, "frequency") || "monthly",
+    statement_date: text(formData, "statement_date"),
   };
 
   const { data, error } = await supabase.from("financial_statement_items").insert(payload).select("id").single();

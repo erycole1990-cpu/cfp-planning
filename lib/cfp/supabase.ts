@@ -74,6 +74,7 @@ export type FinancialStatementItem = {
   description: string;
   amount: number | string;
   frequency: string | null;
+  statement_date: string | null;
 };
 
 export function getSupabaseConfig() {

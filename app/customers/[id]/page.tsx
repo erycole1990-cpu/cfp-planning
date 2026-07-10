@@ -21,6 +21,7 @@ import type { FinancialStatementItem } from "@/lib/cfp/supabase";
 export const dynamic = "force-dynamic";
 
 const priorityOrder = { high: 0, medium: 1, low: 2 } as const;
+const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function progressPercent(currentAmount: number | string, targetAmount: number | string) {
   const current = Number(currentAmount);
@@ -92,6 +93,43 @@ function frequencyLabel(frequency: string | null) {
   }
 }
 
+function statementDate(item: FinancialStatementItem) {
+  return new Date(item.statement_date ? `${item.statement_date}T00:00:00` : item.created_at);
+}
+
+function formatStatementMonth(item: FinancialStatementItem) {
+  const date = statementDate(item);
+  return `${monthLabels[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+function cashFlowImpactForMonth(item: FinancialStatementItem, monthIndex: number) {
+  const amount = Number(item.amount) || 0;
+  if (["monthly", "weekly", "quarterly"].includes(item.frequency || "monthly")) {
+    return monthlyEquivalent(item);
+  }
+
+  const date = statementDate(item);
+  return date.getMonth() === monthIndex ? amount : 0;
+}
+
+function buildCashFlowMonthlySummary(items: FinancialStatementItem[]) {
+  return monthLabels.map((month, index) => {
+    const income = items
+      .filter((item) => item.item_type === "income")
+      .reduce((total, item) => total + cashFlowImpactForMonth(item, index), 0);
+    const expenses = items
+      .filter((item) => item.item_type === "expense")
+      .reduce((total, item) => total + cashFlowImpactForMonth(item, index), 0);
+
+    return {
+      month,
+      income,
+      expenses,
+      surplus: income - expenses,
+    };
+  });
+}
+
 function sumStatement(items: FinancialStatementItem[], statementType: string, itemTypes: string[], monthly = false) {
   return items
     .filter((item) => item.statement_type === statementType && itemTypes.includes(item.item_type))
@@ -114,6 +152,8 @@ function StatementSection({
   itemTypes,
   categories,
   showFrequency = true,
+  dateLabel,
+  monthlySummary,
 }: {
   title: string;
   summary: string;
@@ -124,13 +164,25 @@ function StatementSection({
   itemTypes: Array<{ value: string; label: string }>;
   categories: string[];
   showFrequency?: boolean;
+  dateLabel?: string;
+  monthlySummary?: Array<{ month: string; income: number; expenses: number; surplus: number }>;
 }) {
+  const showDate = Boolean(dateLabel);
+  const tableColumnCount = showDate ? 7 : 6;
+
   return (
     <details className="rounded-md border border-[#dce2dc] p-4" open={statementType === "balance_sheet"}>
       <summary className="cursor-pointer text-lg font-bold">{title}</summary>
       <p className="mt-2 text-sm text-[#68756f]">{summary}</p>
 
-      <form action={createFinancialStatementItem} className="mt-4 grid gap-3 lg:grid-cols-[0.8fr_1fr_1.3fr_0.8fr_0.8fr_auto]">
+      <form
+        action={createFinancialStatementItem}
+        className={`mt-4 grid gap-3 ${
+          showDate
+            ? "lg:grid-cols-[0.8fr_1fr_1.2fr_0.75fr_0.85fr_0.85fr_auto]"
+            : "lg:grid-cols-[0.8fr_1fr_1.3fr_0.8fr_0.8fr_auto]"
+        }`}
+      >
         <input type="hidden" name="customer_id" value={customerId} />
         <input type="hidden" name="actor" value={actor} />
         <input type="hidden" name="statement_type" value={statementType} />
@@ -160,6 +212,12 @@ function StatementSection({
           <span className="label">Amount</span>
           <input className="input" name="amount" required min="0" step="1" type="number" />
         </label>
+        {showDate ? (
+          <label className="field">
+            <span className="label">{dateLabel}</span>
+            <input className="input" name="statement_date" type="date" defaultValue={toDateInputValue(new Date())} />
+          </label>
+        ) : null}
         <label className="field">
           <span className="label">Frequency</span>
           <select className="input" name="frequency" defaultValue={showFrequency ? "monthly" : "current"}>
@@ -191,6 +249,7 @@ function StatementSection({
               <th>Category</th>
               <th>Description</th>
               <th>Amount</th>
+              {showDate ? <th>{dateLabel}</th> : null}
               <th>{showFrequency ? "Monthly eq." : "Value"}</th>
               <th></th>
             </tr>
@@ -205,6 +264,9 @@ function StatementSection({
                   {formatCurrency(item.amount)}
                   {showFrequency ? <p className="text-sm text-[#68756f]">{frequencyLabel(item.frequency)}</p> : null}
                 </td>
+                {showDate ? (
+                  <td>{item.statement_date ? (showFrequency ? formatStatementMonth(item) : formatDate(item.statement_date)) : "Not set"}</td>
+                ) : null}
                 <td>{formatCurrency(showFrequency ? monthlyEquivalent(item) : item.amount)}</td>
                 <td>
                   <form action={deleteFinancialStatementItem}>
@@ -220,7 +282,7 @@ function StatementSection({
             ))}
             {!items.length ? (
               <tr>
-                <td colSpan={6} className="text-sm text-[#68756f]">
+                <td colSpan={tableColumnCount} className="text-sm text-[#68756f]">
                   No line items yet.
                 </td>
               </tr>
@@ -228,6 +290,41 @@ function StatementSection({
           </tbody>
         </table>
       </div>
+
+      {monthlySummary ? (
+        <div className="mt-4 rounded-md border border-[#dce2dc]">
+          <div className="border-b border-[#dce2dc] p-4">
+            <h3 className="font-bold">Monthly cash-flow summary</h3>
+            <p className="mt-1 text-sm text-[#68756f]">
+              Monthly, weekly, and quarterly items are spread across every month. Annual and one-time items are shown in the month selected above.
+            </p>
+          </div>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Income</th>
+                  <th>Expenses</th>
+                  <th>Surplus / shortfall</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlySummary.map((row) => (
+                  <tr key={row.month}>
+                    <td>{row.month}</td>
+                    <td>{formatCurrency(row.income)}</td>
+                    <td>{formatCurrency(row.expenses)}</td>
+                    <td className={row.surplus < 0 ? "font-bold text-red-700" : "font-bold text-[#006263]"}>
+                      {formatCurrency(row.surplus)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
     </details>
   );
 }
@@ -288,6 +385,7 @@ export default async function CustomerDetailPage({
   const monthlyIncome = sumStatement(statementItems, "cash_flow", ["income"], true);
   const monthlyExpenses = sumStatement(statementItems, "cash_flow", ["expense"], true);
   const monthlySurplus = monthlyIncome - monthlyExpenses;
+  const cashFlowMonthlySummary = buildCashFlowMonthlySummary(cashFlowItems);
   const monthlyRevenue = sumStatement(statementItems, "profit_loss", ["revenue"], true);
   const monthlyCosts = sumStatement(statementItems, "profit_loss", ["cost", "expense"], true);
   const monthlyProfit = monthlyRevenue - monthlyCosts;
@@ -603,6 +701,7 @@ export default async function CustomerDetailPage({
                 customerId={customer.id}
                 actor={actor}
                 showFrequency={false}
+                dateLabel="As-at date"
                 itemTypes={[
                   { value: "asset", label: "Asset" },
                   { value: "liability", label: "Liability" },
@@ -616,6 +715,8 @@ export default async function CustomerDetailPage({
                 items={cashFlowItems}
                 customerId={customer.id}
                 actor={actor}
+                dateLabel="Date / month"
+                monthlySummary={cashFlowMonthlySummary}
                 itemTypes={[
                   { value: "income", label: "Income" },
                   { value: "expense", label: "Expense" },
@@ -668,6 +769,7 @@ export default async function CustomerDetailPage({
                 items={profitLossItems}
                 customerId={customer.id}
                 actor={actor}
+                dateLabel="Date / month"
                 itemTypes={[
                   { value: "revenue", label: "Revenue" },
                   { value: "cost", label: "Cost" },

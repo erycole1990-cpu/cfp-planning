@@ -98,6 +98,12 @@ function sumStatement(items: FinancialStatementItem[], statementType: string, it
     .reduce((total, item) => total + (monthly ? monthlyEquivalent(item) : Number(item.amount) || 0), 0);
 }
 
+function isBusinessPlanningRelevant(customer: { employment_status?: string | null; occupation?: string | null } | null | undefined) {
+  const employment = (customer?.employment_status || "").toLowerCase();
+  const occupation = (customer?.occupation || "").toLowerCase();
+  return employment.includes("self-employed") || employment.includes("business") || occupation.includes("business");
+}
+
 function StatementSection({
   title,
   summary,
@@ -285,6 +291,7 @@ export default async function CustomerDetailPage({
   const monthlyRevenue = sumStatement(statementItems, "profit_loss", ["revenue"], true);
   const monthlyCosts = sumStatement(statementItems, "profit_loss", ["cost", "expense"], true);
   const monthlyProfit = monthlyRevenue - monthlyCosts;
+  const showProfitLossSummary = isBusinessPlanningRelevant(customer) || profitLossItems.length > 0;
   const actor = customer?.assigned_advisor_name || "Advisor";
 
   return (
@@ -563,11 +570,11 @@ export default async function CustomerDetailPage({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-2xl font-bold">Financial Statements</h2>
-                <p className="mt-1 text-sm text-[#68756f]">Balance sheet, cash flow, and profit and loss figures for planning decisions.</p>
+                <p className="mt-1 text-sm text-[#68756f]">Start with net worth and personal cash flow. Use business P&L only for self-employed or business clients.</p>
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className={`mt-4 grid gap-3 ${showProfitLossSummary ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
               <div className="rounded-md bg-[#f5f7f4] p-4">
                 <p className="text-sm font-bold uppercase text-[#68756f]">Net Worth</p>
                 <p className="mt-2 text-2xl font-bold">{formatCurrency(netWorth)}</p>
@@ -578,11 +585,13 @@ export default async function CustomerDetailPage({
                 <p className="mt-2 text-2xl font-bold">{formatCurrency(monthlySurplus)}</p>
                 <p className="mt-1 text-sm text-[#405047]">{formatCurrency(monthlyIncome)} income - {formatCurrency(monthlyExpenses)} expenses</p>
               </div>
-              <div className="rounded-md bg-[#f5f7f4] p-4">
-                <p className="text-sm font-bold uppercase text-[#68756f]">Monthly Profit</p>
-                <p className="mt-2 text-2xl font-bold">{formatCurrency(monthlyProfit)}</p>
-                <p className="mt-1 text-sm text-[#405047]">{formatCurrency(monthlyRevenue)} revenue - {formatCurrency(monthlyCosts)} costs</p>
-              </div>
+              {showProfitLossSummary ? (
+                <div className="rounded-md bg-[#f5f7f4] p-4">
+                  <p className="text-sm font-bold uppercase text-[#68756f]">Business Monthly Profit</p>
+                  <p className="mt-2 text-2xl font-bold">{formatCurrency(monthlyProfit)}</p>
+                  <p className="mt-1 text-sm text-[#405047]">{formatCurrency(monthlyRevenue)} revenue - {formatCurrency(monthlyCosts)} costs</p>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-4 space-y-4">
@@ -653,8 +662,8 @@ export default async function CustomerDetailPage({
                 ]}
               />
               <StatementSection
-                title="Profit and Loss Statement"
-                summary="Business or side-income revenue, cost, and expenses. Useful for business owners and self-employed clients."
+                title="Business Profit and Loss (Optional)"
+                summary="Use only for self-employed, business owner, freelancer, agent, or side-business clients. For normal salaried clients, personal Cash Flow is usually enough."
                 statementType="profit_loss"
                 items={profitLossItems}
                 customerId={customer.id}
@@ -673,8 +682,8 @@ export default async function CustomerDetailPage({
             <div id="goal-setting-list" className="panel p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-2xl font-bold">Goal Setting List</h2>
-                  <p className="mt-1 text-sm text-[#68756f]">Priority order controls which goals stay at the top of this portfolio.</p>
+                  <h2 className="text-2xl font-bold">Priority Goal List</h2>
+                  <p className="mt-1 text-sm text-[#68756f]">A quick ordered view of the client&apos;s most important goals.</p>
                 </div>
                 <Link className="btn btn-secondary" href="/calculator">
                   Open Calculator
@@ -750,7 +759,10 @@ export default async function CustomerDetailPage({
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-2xl font-bold">Goals</h2>
+              <div>
+                <h2 className="text-2xl font-bold">Goal Workbench</h2>
+                <p className="mt-1 text-sm text-[#68756f]">Detailed progress, notes, history, and next actions for each goal.</p>
+              </div>
               <p className="text-sm text-[#68756f]">{data.goals?.length || 0} active planning goals</p>
             </div>
 

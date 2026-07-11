@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { sendMagicLink } from "./actions";
 import { LoginForm } from "./login-form";
 
 export const dynamic = "force-dynamic";
@@ -55,16 +54,6 @@ export default async function LoginPage({
         ) : null}
         <div className="mt-5 grid gap-4">
           <LoginForm />
-          <div className="relative text-center text-sm font-semibold text-[#68756f]">or</div>
-          <form action={sendMagicLink} className="grid gap-3">
-            <label className="field">
-              <span className="label">Email magic link</span>
-              <input className="input" name="email" type="email" required placeholder="name@example.com" />
-            </label>
-            <button className="btn btn-secondary" type="submit">
-              Send Magic Link
-            </button>
-          </form>
         </div>
       </section>
     </main>

@@ -1,7 +1,5 @@
-import { redirect } from "next/navigation";
 import { sendMagicLink } from "./actions";
 import { LoginForm } from "./login-form";
-import { getCurrentAccess } from "@/lib/cfp/access";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +8,6 @@ export default async function LoginPage({
 }: {
   searchParams?: Promise<{ sent?: string; email?: string; signedOut?: string }>;
 }) {
-  const access = await getCurrentAccess();
-  if (access?.profile.status === "active") redirect("/");
   const query = ((await searchParams) ?? {}) as { sent?: string; email?: string; signedOut?: string; authConfig?: string; authError?: string };
 
   return (
@@ -43,12 +39,6 @@ export default async function LoginPage({
             Login could not finish: {query.authError}
           </div>
         ) : null}
-        {access ? (
-          <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
-            Your account is waiting for admin approval.
-          </div>
-        ) : null}
-
         <div className="mt-5 grid gap-4">
           <LoginForm />
           <div className="relative text-center text-sm font-semibold text-[#68756f]">or</div>

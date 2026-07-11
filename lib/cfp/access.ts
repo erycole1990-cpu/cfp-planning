@@ -76,28 +76,32 @@ export async function getCurrentAccess(): Promise<AccessContext | null> {
   const fullName = user.user_metadata?.full_name || user.user_metadata?.name || email;
   if (!supabase) return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName));
 
-  const { data: existing } = await supabase.from("user_profiles").select("*").eq("id", user.id).maybeSingle();
-  const profileSeed = activeRoleFor(email, existing as UserProfile | null);
+  try {
+    const { data: existing } = await supabase.from("user_profiles").select("*").eq("id", user.id).maybeSingle();
+    const profileSeed = activeRoleFor(email, existing as UserProfile | null);
 
-  const payload = {
-    id: user.id,
-    email,
-    full_name: existing?.full_name || user.user_metadata?.full_name || user.user_metadata?.name || email,
-    role: profileSeed.role,
-    status: profileSeed.status,
-  };
+    const payload = {
+      id: user.id,
+      email,
+      full_name: existing?.full_name || user.user_metadata?.full_name || user.user_metadata?.name || email,
+      role: profileSeed.role,
+      status: profileSeed.status,
+    };
 
-  const { data: profile, error } = await supabase
-    .from("user_profiles")
-    .upsert(payload, { onConflict: "id" })
-    .select("*")
-    .single();
-  if (error) {
+    const { data: profile, error } = await supabase
+      .from("user_profiles")
+      .upsert(payload, { onConflict: "id" })
+      .select("*")
+      .single();
+    if (error) {
+      return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName));
+    }
+
+    const typedProfile = profile as UserProfile;
+    return accessFromProfile(userIdentity, typedProfile);
+  } catch {
     return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName));
   }
-
-  const typedProfile = profile as UserProfile;
-  return accessFromProfile(userIdentity, typedProfile);
 }
 
 export async function requireCurrentAccess() {

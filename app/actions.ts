@@ -257,6 +257,55 @@ export async function deleteFinancialStatementItem(formData: FormData) {
   redirect(`/customers/${customerId}?saved=statement#financial-statements`);
 }
 
+export async function importFinancialStatementItems(formData: FormData) {
+  const supabase = requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const actor = requiredText(formData, "actor");
+  const statementTypes = formData.getAll("statement_type").map(String);
+  const itemTypes = formData.getAll("item_type").map(String);
+  const categories = formData.getAll("category").map(String);
+  const descriptions = formData.getAll("description").map(String);
+  const amounts = formData.getAll("amount").map(String);
+  const frequencies = formData.getAll("frequency").map(String);
+  const statementDates = formData.getAll("statement_date").map(String);
+
+  const rows = descriptions
+    .map((description, index) => ({
+      customer_id: customerId,
+      statement_type: statementTypes[index],
+      item_type: itemTypes[index],
+      category: categories[index] || null,
+      description: description.trim(),
+      amount: Number(amounts[index]),
+      frequency: frequencies[index] || "one_time",
+      statement_date: statementDates[index] || null,
+    }))
+    .filter((row) => row.description && Number.isFinite(row.amount) && row.amount >= 0);
+
+  for (const row of rows) {
+    if (!["balance_sheet", "cash_flow", "profit_loss"].includes(row.statement_type)) {
+      throw new Error("One imported row has an invalid statement type.");
+    }
+    if (!row.item_type) throw new Error("One imported row is missing a type.");
+  }
+
+  if (!rows.length) throw new Error("No valid imported rows to save.");
+
+  const { error } = await supabase.from("financial_statement_items").insert(rows);
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor,
+    action: "financial_statement_items_imported",
+    entityType: "financial_statement_items",
+    entityId: null,
+    payload: { customer_id: customerId, count: rows.length },
+  });
+
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/customers/${customerId}?saved=statement-import#financial-statements`);
+}
+
 export async function createGoal(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");

@@ -15,6 +15,7 @@ import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge
 import { formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
 import { getCustomerDetail } from "@/lib/cfp/data";
 import { AddGoalForm } from "./add-goal-form";
+import { StatementImporter } from "./statement-importer";
 import { RiskProfileField } from "@/app/customers/risk-profile-field";
 import type { FinancialStatementItem } from "@/lib/cfp/supabase";
 
@@ -693,6 +694,7 @@ export default async function CustomerDetailPage({
             </div>
 
             <div className="mt-4 space-y-4">
+              <StatementImporter customerId={customer.id} actor={actor} />
               <StatementSection
                 title="Balance Sheet"
                 summary="Current assets and liabilities. This gives the client's net worth position."

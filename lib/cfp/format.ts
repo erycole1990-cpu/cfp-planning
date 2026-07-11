@@ -4,7 +4,8 @@ export function formatCurrency(value: number | string | null | undefined) {
     style: "currency",
     currency: "MYR",
     currencyDisplay: "narrowSymbol",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
   }).format(amount);
 }
 

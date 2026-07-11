@@ -19,6 +19,7 @@ type SuggestedRow = {
 const categories = [
   "Active Income",
   "Salary",
+  "Commission",
   "Bonus",
   "Rental Income",
   "Investment Income",
@@ -89,8 +90,16 @@ function normalizeDate(raw: string) {
 }
 
 function splitStatementLine(line: string) {
+  if (!line.includes(",") && !line.includes("\t")) return [line];
+  if (line.includes("\t")) {
+    return line
+      .split("\t")
+      .map((part) => part.replace(/^"|"$/g, "").trim())
+      .filter(Boolean);
+  }
+
   return line
-    .split(/\t|,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+    .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)(?!\d{3}\b)/)
     .map((part) => part.replace(/^"|"$/g, "").trim())
     .filter(Boolean);
 }
@@ -110,7 +119,8 @@ function extractAmount(line: string) {
 
 function classifyCategory(description: string, amount: number) {
   const text = description.toLowerCase();
-  if (/salary|payroll|wages|commission/.test(text)) return "Salary";
+  if (/commission|comission/.test(text)) return "Commission";
+  if (/salary|payroll|wages/.test(text)) return "Salary";
   if (/bonus/.test(text)) return "Bonus";
   if (/rental|tenant/.test(text)) return "Rental Income";
   if (/dividend|interest|distribution|coupon/.test(text)) return "Investment Income";
@@ -343,7 +353,11 @@ export function StatementImporter({ customerId, actor }: { customerId: string; a
           <input type="hidden" name="customer_id" value={customerId} />
           <input type="hidden" name="actor" value={actor} />
           <div className="mb-3 rounded-md bg-[#f5f7f4] p-3 text-sm font-semibold text-[#405047]">
-            Review {rows.length} row(s). Total detected amount: RM {totalAmount.toLocaleString("en-MY", { maximumFractionDigits: 0 })}.
+            Review {rows.length} row(s). Total detected amount: RM{" "}
+            {totalAmount.toLocaleString("en-MY", {
+              minimumFractionDigits: Number.isInteger(totalAmount) ? 0 : 2,
+              maximumFractionDigits: 2,
+            })}.
           </div>
           <div className="table-wrap rounded-md border border-[#dce2dc]">
             <table className="data-table">
@@ -394,7 +408,7 @@ export function StatementImporter({ customerId, actor }: { customerId: string; a
                       <input className="input" name="description" value={row.description} onChange={(event) => updateRow(row.id, "description", event.target.value)} />
                     </td>
                     <td>
-                      <input className="input" name="amount" min="0" step="1" type="number" value={row.amount} onChange={(event) => updateRow(row.id, "amount", event.target.value)} />
+                      <input className="input" name="amount" min="0" step="0.01" type="number" value={row.amount} onChange={(event) => updateRow(row.id, "amount", event.target.value)} />
                     </td>
                     <td>
                       <button className="btn btn-secondary" type="button" onClick={() => removeRow(row.id)}>

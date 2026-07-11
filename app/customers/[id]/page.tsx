@@ -211,7 +211,7 @@ function StatementSection({
         </label>
         <label className="field">
           <span className="label">Amount</span>
-          <input className="input" name="amount" required min="0" step="1" type="number" />
+          <input className="input" name="amount" required min="0" step="0.01" type="number" />
         </label>
         {showDate ? (
           <label className="field">
@@ -726,6 +726,7 @@ export default async function CustomerDetailPage({
                 categories={[
                   "Active Income",
                   "Salary",
+                  "Commission",
                   "Bonus",
                   "Part Time Income",
                   "Passive Income",

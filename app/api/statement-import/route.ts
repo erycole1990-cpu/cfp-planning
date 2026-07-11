@@ -7,6 +7,7 @@ const allowedItemTypes = ["income", "expense", "asset", "liability", "revenue", 
 const categories = [
   "Active Income",
   "Salary",
+  "Commission",
   "Bonus",
   "Rental Income",
   "Investment Income",

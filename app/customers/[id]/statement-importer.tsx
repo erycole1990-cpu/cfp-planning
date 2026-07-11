@@ -204,6 +204,7 @@ export function StatementImporter({ customerId, actor }: { customerId: string; a
   const [target, setTarget] = useState<ImportTarget>("cash_flow");
   const [rows, setRows] = useState<SuggestedRow[]>([]);
   const [notice, setNotice] = useState("");
+  const [isReadingFile, setIsReadingFile] = useState(false);
 
   const totalAmount = useMemo(() => rows.reduce((total, row) => total + Number(row.amount || 0), 0), [rows]);
 
@@ -215,17 +216,72 @@ export function StatementImporter({ customerId, actor }: { customerId: string; a
     setRows((current) => current.filter((row) => row.id !== id));
   }
 
+  function readAsDataUrl(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("File could not be read."));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function normalizeImportedRows(importedRows: Array<Partial<SuggestedRow> & { amount?: number | string }>) {
+    return importedRows.map((row, index) => ({
+      id: `ai-${Date.now()}-${index}`,
+      statementType: row.statementType || "cash_flow",
+      itemType: row.itemType || "expense",
+      category: row.category || "Other",
+      description: row.description || "Imported item",
+      amount: String(row.amount || "0"),
+      frequency: row.frequency || (row.statementType === "balance_sheet" ? "current" : "one_time"),
+      statementDate: row.statementDate || "",
+    }));
+  }
+
   async function handleFile(file: File | undefined) {
     if (!file) return;
-    if (!/(text|csv|plain|excel|spreadsheet)/i.test(file.type) && !/\.(csv|txt)$/i.test(file.name)) {
-      setNotice("Photo and PDF OCR needs the AI/OCR engine. For now, export the statement to CSV/TXT or paste the extracted text below.");
-      return;
-    }
+    setNotice("");
 
-    const text = await file.text();
-    setRawText(text);
-    setRows(parseStatementText(text, target));
-    setNotice(`Loaded ${file.name}. Please review the suggested rows before saving.`);
+    try {
+      if (/(text|csv|plain|excel|spreadsheet)/i.test(file.type) || /\.(csv|txt)$/i.test(file.name)) {
+        const text = await file.text();
+        setRawText(text);
+        setRows(parseStatementText(text, target));
+        setNotice(`Loaded ${file.name}. Please review the suggested rows before saving.`);
+        return;
+      }
+
+      if (/image\//i.test(file.type) || /pdf/i.test(file.type) || /\.(pdf|png|jpe?g|webp)$/i.test(file.name)) {
+        setIsReadingFile(true);
+        setNotice("Reading the file with AI. This may take a moment.");
+        const fileData = await readAsDataUrl(file);
+        const response = await fetch("/api/statement-import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileName: file.name,
+            mimeType: file.type,
+            fileData,
+            target,
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          setNotice(result.error || "AI import failed. Please try a clearer file.");
+          return;
+        }
+        const suggestedRows = normalizeImportedRows(result.rows || []);
+        setRows(suggestedRows);
+        setNotice(suggestedRows.length ? `${suggestedRows.length} AI suggested row(s) ready for review.` : "AI did not find usable rows. Try a clearer photo or PDF.");
+        return;
+      }
+
+      setNotice("Unsupported file type. Please upload CSV, TXT, PDF, PNG, JPG, or WEBP.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "File import failed. Please try again.");
+    } finally {
+      setIsReadingFile(false);
+    }
   }
 
   function classify() {
@@ -244,7 +300,12 @@ export function StatementImporter({ customerId, actor }: { customerId: string; a
       <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_0.65fr]">
         <label className="field">
           <span className="label">Statement file</span>
-          <input className="input" type="file" accept=".csv,.txt,text/csv,text/plain" onChange={(event) => handleFile(event.target.files?.[0])} />
+          <input
+            className="input"
+            type="file"
+            accept=".csv,.txt,.pdf,.png,.jpg,.jpeg,.webp,text/csv,text/plain,application/pdf,image/*"
+            onChange={(event) => handleFile(event.target.files?.[0])}
+          />
         </label>
         <label className="field">
           <span className="label">Import target</span>
@@ -271,8 +332,11 @@ export function StatementImporter({ customerId, actor }: { customerId: string; a
         <button className="btn" type="button" onClick={classify}>
           Read and Classify
         </button>
-        <p className="text-sm text-[#68756f]">{notice || "CSV/TXT works now. Photo/PDF OCR can be connected in the next AI sprint."}</p>
+        <p className="text-sm text-[#68756f]">
+          {notice || "CSV/TXT is read in the browser. PDF/photo uses AI when OPENAI_API_KEY is configured."}
+        </p>
       </div>
+      {isReadingFile ? <p className="mt-2 text-sm font-semibold text-[#006263]">Reading file...</p> : null}
 
       {rows.length ? (
         <form action={importFinancialStatementItems} className="mt-4">

@@ -57,6 +57,35 @@ async function writeAudit(input: {
   if (error) throw new Error(error.message);
 }
 
+export type CustomerFormState = {
+  error: string | null;
+};
+
+function isRedirectError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "digest" in error &&
+    typeof (error as { digest?: unknown }).digest === "string" &&
+    (error as { digest: string }).digest.startsWith("NEXT_REDIRECT")
+  );
+}
+
+function friendlySaveError(error: unknown) {
+  const message = error instanceof Error ? error.message : "The record could not be saved.";
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes("row-level security") || lowerMessage.includes("permission denied")) {
+    return "Customer could not be saved because your login is not active as an admin or agent in Supabase yet. Please activate your user profile, then try again.";
+  }
+
+  if (lowerMessage.includes("duplicate key")) {
+    return "This record already exists. Check the customer list before creating another one.";
+  }
+
+  return message;
+}
+
 async function customerForAccess(customerId: string) {
   const supabase = await requireSupabase();
   const { data, error } = await supabase.from("customers").select("*").eq("id", customerId).single();
@@ -112,6 +141,16 @@ export async function createCustomer(formData: FormData) {
   revalidatePath("/");
   revalidatePath("/customers");
   redirect(`/customers/${data.id}?saved=customer`);
+}
+
+export async function createCustomerFromIntake(_state: CustomerFormState, formData: FormData): Promise<CustomerFormState> {
+  try {
+    await createCustomer(formData);
+    return { error: null };
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    return { error: friendlySaveError(error) };
+  }
 }
 
 export async function updateCustomer(formData: FormData) {

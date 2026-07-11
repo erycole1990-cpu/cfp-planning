@@ -80,10 +80,17 @@ function riskDescription(profile: RiskProfile) {
   }
 }
 
-export function RiskProfileField({ defaultValue = "moderate" }: { defaultValue?: string | null }) {
+export function RiskProfileField({
+  defaultValue = "moderate",
+  openByDefault = false,
+}: {
+  defaultValue?: string | null;
+  openByDefault?: boolean;
+}) {
   const initialValue = defaultValue === "conservative" || defaultValue === "aggressive" ? defaultValue : "moderate";
   const [profile, setProfile] = useState<RiskProfile>(initialValue);
   const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [isOpen, setIsOpen] = useState(openByDefault);
 
   const result = useMemo(() => {
     const values = Object.values(answers);
@@ -107,9 +114,12 @@ export function RiskProfileField({ defaultValue = "moderate" }: { defaultValue?:
         </select>
       </label>
 
-      <details className="mt-3 rounded-md border border-[#dce2dc] p-4">
+      <details className="mt-3 rounded-md border border-[#dce2dc] p-4" open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
         <summary className="cursor-pointer font-bold">Find risk profile</summary>
         <div className="mt-4 grid gap-4">
+          <p className="text-sm font-semibold text-[#405047]">
+            Use these questions when the client is unsure. The result guides the profile, then the advisor can confirm the final selection.
+          </p>
           {questions.map((question) => (
             <fieldset key={question.id} className="rounded-md border border-[#eef3ef] p-3">
               <legend className="px-1 text-sm font-bold text-[#405047]">{question.label}</legend>

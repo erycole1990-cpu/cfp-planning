@@ -21,6 +21,9 @@ export type Customer = {
   service_status: string | null;
   service_ended_at: string | null;
   service_ended_reason: string | null;
+  assigned_agent_user_id: string | null;
+  client_user_id: string | null;
+  client_stage: string | null;
   risk_profile: string | null;
   assigned_advisor_name: string | null;
   notes: string | null;

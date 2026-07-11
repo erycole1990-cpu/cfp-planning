@@ -7,6 +7,7 @@ import {
   type NextStepAction,
 } from "./supabase";
 import { statusRank } from "./status";
+import { canAccessCustomer, filterCustomersForAccess, requireCurrentAccess } from "./access";
 
 export type DashboardData = {
   configured: boolean;
@@ -18,6 +19,7 @@ export type DashboardData = {
 };
 
 export async function getDashboardData(): Promise<DashboardData> {
+  const access = await requireCurrentAccess();
   const supabase = createCfpClient();
   if (!supabase) {
     return { configured: false, customers: [], goals: [], actions: [], latestLogsByGoal: {} };
@@ -49,7 +51,8 @@ export async function getDashboardData(): Promise<DashboardData> {
     latestLogsByGoal[log.goal_id] ||= log;
   }
 
-  const activeCustomerIds = new Set(((customersResult.data ?? []) as Customer[]).map((customer) => customer.id));
+  const customers = filterCustomersForAccess(access, (customersResult.data ?? []) as Customer[]);
+  const activeCustomerIds = new Set(customers.map((customer) => customer.id));
   const goals = ((goalsResult.data ?? []) as DashboardData["goals"]).filter((goal) => activeCustomerIds.has(goal.customer_id)).sort((a, b) => {
     const statusDelta = statusRank(a.on_track_status) - statusRank(b.on_track_status);
     if (statusDelta) return statusDelta;
@@ -58,7 +61,7 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   return {
     configured: true,
-    customers: (customersResult.data ?? []) as Customer[],
+    customers,
     goals,
     actions: ((actionsResult.data ?? []) as DashboardData["actions"]).filter((action) => activeCustomerIds.has(action.customer_id)),
     latestLogsByGoal,
@@ -68,6 +71,7 @@ export async function getDashboardData(): Promise<DashboardData> {
 export type CustomerServiceFilter = "active" | "inactive" | "all";
 
 export async function getCustomersData(filter: CustomerServiceFilter = "active") {
+  const access = await requireCurrentAccess();
   const supabase = createCfpClient();
   if (!supabase) return { configured: false, customers: [], goals: [] as FinancialGoal[] };
 
@@ -83,22 +87,29 @@ export async function getCustomersData(filter: CustomerServiceFilter = "active")
     customersQuery,
     supabase.from("financial_goals").select("*"),
   ]);
-  const activeCustomerIds = new Set(((customersResult.data ?? []) as Customer[]).map((customer) => customer.id));
+  const customers = filterCustomersForAccess(access, (customersResult.data ?? []) as Customer[]);
+  const activeCustomerIds = new Set(customers.map((customer) => customer.id));
 
   return {
     configured: true,
-    customers: (customersResult.data ?? []) as Customer[],
+    customers,
     goals: ((goalsResult.data ?? []) as FinancialGoal[]).filter((goal) => activeCustomerIds.has(goal.customer_id)),
     error: customersResult.error?.message || goalsResult.error?.message,
   };
 }
 
 export async function getCustomerDetail(id: string) {
+  const access = await requireCurrentAccess();
   const supabase = createCfpClient();
   if (!supabase) return { configured: false };
 
-  const [customerResult, goalsResult, logsResult, actionsResult, statementsResult] = await Promise.all([
-    supabase.from("customers").select("*").eq("id", id).single(),
+  const customerResult = await supabase.from("customers").select("*").eq("id", id).single();
+  const customer = customerResult.data as Customer | null;
+  if (customer && !canAccessCustomer(access, customer)) {
+    return { configured: true, customer: null, error: "You do not have access to this customer." };
+  }
+
+  const [goalsResult, logsResult, actionsResult, statementsResult] = await Promise.all([
     supabase.from("financial_goals").select("*").eq("customer_id", id).order("target_date"),
     supabase
       .from("goal_progress_logs")
@@ -116,7 +127,7 @@ export async function getCustomerDetail(id: string) {
 
   return {
     configured: true,
-    customer: customerResult.data as Customer | null,
+    customer,
     goals,
     logs,
     actions: (actionsResult.data ?? []) as NextStepAction[],
@@ -140,11 +151,17 @@ async function goalIdsForCustomer(customerId: string) {
 }
 
 export async function getGoalDetail(customerId: string, goalId: string) {
+  const access = await requireCurrentAccess();
   const supabase = createCfpClient();
   if (!supabase) return { configured: false };
 
-  const [customerResult, goalResult, logsResult, actionsResult] = await Promise.all([
-    supabase.from("customers").select("*").eq("id", customerId).single(),
+  const customerResult = await supabase.from("customers").select("*").eq("id", customerId).single();
+  const customer = customerResult.data as Customer | null;
+  if (customer && !canAccessCustomer(access, customer)) {
+    return { configured: true, customer: null, goal: null, logs: [], actions: [], error: "You do not have access to this customer." };
+  }
+
+  const [goalResult, logsResult, actionsResult] = await Promise.all([
     supabase.from("financial_goals").select("*").eq("id", goalId).eq("customer_id", customerId).single(),
     supabase.from("goal_progress_logs").select("*").eq("goal_id", goalId).order("created_at", { ascending: true }),
     supabase.from("next_step_actions").select("*").eq("goal_id", goalId).order("due_date", { ascending: true }),
@@ -152,7 +169,7 @@ export async function getGoalDetail(customerId: string, goalId: string) {
 
   return {
     configured: true,
-    customer: customerResult.data as Customer | null,
+    customer,
     goal: goalResult.data as FinancialGoal | null,
     logs: (logsResult.data ?? []) as GoalProgressLog[],
     actions: (actionsResult.data ?? []) as NextStepAction[],

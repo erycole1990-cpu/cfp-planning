@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { statusLabel } from "@/lib/cfp/status";
+import { getCurrentAccess } from "@/lib/cfp/access";
+import { signOut } from "@/app/login/actions";
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export async function AppShell({ children }: { children: React.ReactNode }) {
+  const access = await getCurrentAccess();
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-[#dce2dc] bg-white">
@@ -19,13 +23,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/calculator">
               Calculator
             </Link>
-            <Link className="btn" href="/customers/new">
-              Add Customer
-            </Link>
+            {access?.isAdmin ? (
+              <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/admin/access">
+                Admin
+              </Link>
+            ) : null}
+            {access?.isAdmin || access?.isAgent ? (
+              <Link className="btn" href="/customers/new">
+                Add Customer
+              </Link>
+            ) : null}
+            {access ? (
+              <form action={signOut} className="flex items-center gap-2">
+                <span className="hidden text-xs font-semibold text-[#68756f] md:inline">
+                  {access.profile.role} · {access.user.email}
+                </span>
+                <button className="btn btn-secondary" type="submit">
+                  Sign Out
+                </button>
+              </form>
+            ) : null}
           </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">{children}</main>
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+        {access && access.profile.status !== "active" ? (
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+            Your account is waiting for admin approval. You can sign out or ask the admin to activate your role.
+          </div>
+        ) : null}
+        {children}
+      </main>
     </div>
   );
 }

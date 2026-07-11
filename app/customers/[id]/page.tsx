@@ -14,6 +14,7 @@ import {
 import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge, StatusBadge } from "@/app/ui";
 import { formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
 import { getCustomerDetail } from "@/lib/cfp/data";
+import { requireCurrentAccess } from "@/lib/cfp/access";
 import { AddGoalForm } from "./add-goal-form";
 import { StatementImporter } from "./statement-importer";
 import { RiskProfileField } from "@/app/customers/risk-profile-field";
@@ -339,6 +340,7 @@ export default async function CustomerDetailPage({
 }) {
   const { id } = await params;
   const query = (await searchParams) ?? {};
+  const access = await requireCurrentAccess();
   const data = await getCustomerDetail(id);
 
   if (data.configured && !data.customer && !data.error) notFound();
@@ -391,7 +393,7 @@ export default async function CustomerDetailPage({
   const monthlyCosts = sumStatement(statementItems, "profit_loss", ["cost", "expense"], true);
   const monthlyProfit = monthlyRevenue - monthlyCosts;
   const showProfitLossSummary = isBusinessPlanningRelevant(customer) || profitLossItems.length > 0;
-  const actor = customer?.assigned_advisor_name || "Advisor";
+  const actor = access.profile.full_name || access.user.email;
 
   return (
     <AppShell>
@@ -414,7 +416,9 @@ export default async function CustomerDetailPage({
       <ErrorNotice message={data.error} />
       {query.saved ? (
         <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
-          Saved. The database and dashboard are updated.
+          {query.saved === "pending"
+            ? "Submitted for advisor review. Official planning numbers will update after approval."
+            : "Saved. The database and dashboard are updated."}
         </div>
       ) : null}
       {isInactiveCustomer ? (
@@ -659,10 +663,19 @@ export default async function CustomerDetailPage({
               </details>
             </div>
 
-            <div className="panel p-5">
-              <h2 className="text-xl font-bold">Add financial goal</h2>
-              <AddGoalForm customerId={customer.id} actor={customer.assigned_advisor_name || "Advisor"} today={today} />
-            </div>
+            {access.isClient ? (
+              <div className="panel p-5">
+                <h2 className="text-xl font-bold">Client updates</h2>
+                <p className="mt-2 text-sm text-[#68756f]">
+                  You can update profile and financial statement information. Goal and advice changes are reviewed by your advisor before becoming official.
+                </p>
+              </div>
+            ) : (
+              <div className="panel p-5">
+                <h2 className="text-xl font-bold">Add financial goal</h2>
+                <AddGoalForm customerId={customer.id} actor={actor} today={today} />
+              </div>
+            )}
           </section>
 
           <section id="financial-statements" className="panel p-5">

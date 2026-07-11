@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { calculateOnTrackStatus } from "@/lib/cfp/status";
-import { createCfpClient } from "@/lib/cfp/supabase";
+import { createCfpClient, type Customer } from "@/lib/cfp/supabase";
+import { canAccessCustomer, requireCurrentAccess } from "@/lib/cfp/access";
 
 function requireSupabase() {
   const supabase = createCfpClient();
@@ -56,7 +57,23 @@ async function writeAudit(input: {
   if (error) throw new Error(error.message);
 }
 
+async function customerForAccess(customerId: string) {
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.from("customers").select("*").eq("id", customerId).single();
+  if (error) throw new Error(error.message);
+  return data as Customer;
+}
+
+async function requireCustomerAccess(customerId: string) {
+  const access = await requireCurrentAccess();
+  const customer = await customerForAccess(customerId);
+  if (!canAccessCustomer(access, customer)) throw new Error("You do not have access to this customer.");
+  return { access, customer };
+}
+
 export async function createCustomer(formData: FormData) {
+  const access = await requireCurrentAccess();
+  if (!access.isAdmin && !access.isAgent) throw new Error("Only admins and agents can add customers.");
   const supabase = requireSupabase();
   const payload = {
     full_name: requiredText(formData, "full_name"),
@@ -75,7 +92,9 @@ export async function createCustomer(formData: FormData) {
     source_of_funds: text(formData, "source_of_funds"),
     source_of_wealth: text(formData, "source_of_wealth"),
     risk_profile: requiredText(formData, "risk_profile"),
-    assigned_advisor_name: requiredText(formData, "assigned_advisor_name"),
+    assigned_advisor_name: access.isAgent ? access.profile.full_name || access.user.email : requiredText(formData, "assigned_advisor_name"),
+    assigned_agent_user_id: access.isAgent ? access.user.id : null,
+    client_stage: "lead",
     notes: text(formData, "notes"),
   };
 
@@ -98,6 +117,7 @@ export async function createCustomer(formData: FormData) {
 export async function updateCustomer(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
   const payload = {
     full_name: requiredText(formData, "full_name"),
     email: text(formData, "email"),
@@ -115,19 +135,20 @@ export async function updateCustomer(formData: FormData) {
     source_of_funds: text(formData, "source_of_funds"),
     source_of_wealth: text(formData, "source_of_wealth"),
     risk_profile: requiredText(formData, "risk_profile"),
-    assigned_advisor_name: requiredText(formData, "assigned_advisor_name"),
+    assigned_advisor_name: access.isClient ? undefined : requiredText(formData, "assigned_advisor_name"),
     notes: text(formData, "notes"),
   };
 
-  const { error } = await supabase.from("customers").update(payload).eq("id", customerId);
+  const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
+  const { error } = await supabase.from("customers").update(cleanPayload).eq("id", customerId);
   if (error) throw new Error(error.message);
 
   await writeAudit({
-    actor: payload.assigned_advisor_name,
+    actor: access.profile.full_name || access.user.email,
     action: "customer_updated",
     entityType: "customers",
     entityId: customerId,
-    payload,
+    payload: cleanPayload,
   });
 
   revalidatePath("/");
@@ -139,6 +160,8 @@ export async function updateCustomer(formData: FormData) {
 export async function endCustomerService(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (!access.isAdmin && !access.isAgent) throw new Error("Only admins and agents can end service.");
   const actor = requiredText(formData, "actor");
   const reason = requiredText(formData, "service_ended_reason");
   const payload = {
@@ -167,6 +190,8 @@ export async function endCustomerService(formData: FormData) {
 export async function reactivateCustomerService(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (!access.isAdmin && !access.isAgent) throw new Error("Only admins and agents can reactivate service.");
   const actor = requiredText(formData, "actor");
   const payload = {
     service_status: "active",
@@ -194,6 +219,7 @@ export async function reactivateCustomerService(formData: FormData) {
 export async function createFinancialStatementItem(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
   const actor = requiredText(formData, "actor");
   const statementType = requiredText(formData, "statement_type");
   const itemType = requiredText(formData, "item_type");
@@ -213,6 +239,18 @@ export async function createFinancialStatementItem(formData: FormData) {
     statement_date: text(formData, "statement_date"),
   };
 
+  if (access.isClient) {
+    const { error } = await supabase.from("pending_client_submissions").insert({
+      customer_id: customerId,
+      submitted_by_user_id: access.user.id,
+      submission_type: "financial_statement_item",
+      payload,
+    });
+    if (error) throw new Error(error.message);
+    revalidatePath(`/customers/${customerId}`);
+    redirect(`/customers/${customerId}?saved=pending#financial-statements`);
+  }
+
   const { data, error } = await supabase.from("financial_statement_items").insert(payload).select("id").single();
   if (error) throw new Error(error.message);
 
@@ -231,6 +269,8 @@ export async function createFinancialStatementItem(formData: FormData) {
 export async function deleteFinancialStatementItem(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (access.isClient) throw new Error("Client-submitted official records need advisor review.");
   const itemId = requiredText(formData, "statement_item_id");
   const actor = requiredText(formData, "actor");
 
@@ -260,6 +300,7 @@ export async function deleteFinancialStatementItem(formData: FormData) {
 export async function importFinancialStatementItems(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
   const actor = requiredText(formData, "actor");
   const statementTypes = formData.getAll("statement_type").map(String);
   const itemTypes = formData.getAll("item_type").map(String);
@@ -291,6 +332,18 @@ export async function importFinancialStatementItems(formData: FormData) {
 
   if (!rows.length) throw new Error("No valid imported rows to save.");
 
+  if (access.isClient) {
+    const { error } = await supabase.from("pending_client_submissions").insert({
+      customer_id: customerId,
+      submitted_by_user_id: access.user.id,
+      submission_type: "financial_statement_import",
+      payload: { rows },
+    });
+    if (error) throw new Error(error.message);
+    revalidatePath(`/customers/${customerId}`);
+    redirect(`/customers/${customerId}?saved=pending#financial-statements`);
+  }
+
   const { error } = await supabase.from("financial_statement_items").insert(rows);
   if (error) throw new Error(error.message);
 
@@ -309,6 +362,8 @@ export async function importFinancialStatementItems(formData: FormData) {
 export async function createGoal(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (access.isClient) throw new Error("Goals need advisor review before becoming official.");
   const targetDate = requiredText(formData, "target_date");
   const targetDateValue = new Date(`${targetDate}T00:00:00`);
   if (targetDateValue < new Date(new Date().toDateString())) {
@@ -355,6 +410,8 @@ export async function createGoal(formData: FormData) {
 export async function logProgress(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (access.isClient) throw new Error("Progress updates need advisor review before becoming official.");
   const goalId = requiredText(formData, "goal_id");
   const loggedAmount = numberValue(formData, "logged_amount");
   const loggedBy = requiredText(formData, "logged_by");
@@ -414,6 +471,8 @@ export async function logProgress(formData: FormData) {
 export async function createNextStepAction(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (access.isClient) throw new Error("Only advisors can create next-step actions.");
   const goalId = text(formData, "goal_id");
   const payload = {
     customer_id: customerId,
@@ -445,6 +504,8 @@ export async function createNextStepAction(formData: FormData) {
 export async function updateGoalPriority(formData: FormData) {
   const supabase = requireSupabase();
   const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (access.isClient) throw new Error("Goal priority changes need advisor review.");
   const goalId = requiredText(formData, "goal_id");
   const priority = requiredText(formData, "priority");
   const actor = text(formData, "actor");
@@ -480,6 +541,8 @@ export async function completeNextStepAction(formData: FormData) {
   const supabase = requireSupabase();
   const actionId = requiredText(formData, "action_id");
   const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (access.isClient) throw new Error("Only advisors can complete next-step actions.");
   const goalId = text(formData, "goal_id");
   const actor = requiredText(formData, "actor");
 

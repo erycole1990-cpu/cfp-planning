@@ -9,6 +9,7 @@ type CookieToSet = {
 
 export async function updateSession(request: NextRequest) {
   const supabaseResponse = NextResponse.next({ request });
+  const pathname = request.nextUrl.pathname;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -40,8 +41,23 @@ export async function updateSession(request: NextRequest) {
       },
     });
 
-    // Refresh session so it doesn't expire while user is active
-    await supabase.auth.getUser();
+    const publicPath =
+      pathname.startsWith("/login") ||
+      pathname.startsWith("/auth/callback") ||
+      pathname.startsWith("/api") ||
+      pathname.startsWith("/_next");
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user && !publicPath) {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = "/login";
+      redirectUrl.searchParams.set("next", pathname);
+      return NextResponse.redirect(redirectUrl);
+    }
+
     return response;
   } catch {
     // Never let an auth hiccup crash the entire edge middleware

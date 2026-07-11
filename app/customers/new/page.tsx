@@ -1,30 +1,10 @@
 import Link from "next/link";
 import { createCustomer } from "@/app/actions";
-import { AppShell, EmptyState, PageHeader } from "@/app/ui";
-import { RiskProfileField } from "@/app/customers/risk-profile-field";
-import { requireCurrentAccess } from "@/lib/cfp/access";
+import { AppShell, PageHeader } from "@/app/ui";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewCustomerPage() {
-  const access = await requireCurrentAccess();
-
-  if (!access.isAdmin && !access.isAgent) {
-    return (
-      <AppShell>
-        <EmptyState
-          title="Advisor access required"
-          body="Only admins and active agents can add a new customer record. Client updates should be added inside their own planning workspace for review."
-          action={
-            <Link className="btn btn-secondary" href="/customers">
-              Back to Customers
-            </Link>
-          }
-        />
-      </AppShell>
-    );
-  }
-
+export default function NewCustomerPage() {
   return (
     <AppShell>
       <PageHeader
@@ -38,6 +18,11 @@ export default async function NewCustomerPage() {
       />
 
       <form action={createCustomer} className="panel grid max-w-5xl gap-4 p-5 md:grid-cols-2">
+        <div className="rounded-md bg-[#f5f7f4] p-4 text-sm font-semibold text-[#405047] md:col-span-2">
+          Create the customer profile first. After saving, the app opens the full planning workspace for goals, calculators,
+          statements, and progress tracking.
+        </div>
+
         <div className="md:col-span-2">
           <h2 className="text-lg font-bold">Personal particulars</h2>
         </div>
@@ -133,16 +118,17 @@ export default async function NewCustomerPage() {
         <div className="border-t border-[#dce2dc] pt-4 md:col-span-2">
           <h2 className="text-lg font-bold">Planning assignment</h2>
         </div>
-        <RiskProfileField defaultValue="moderate" />
+        <label className="field md:col-span-2">
+          <span className="label">Risk profile</span>
+          <select className="input" name="risk_profile" required defaultValue="moderate">
+            <option value="conservative">Conservative</option>
+            <option value="moderate">Moderate</option>
+            <option value="aggressive">Aggressive</option>
+          </select>
+        </label>
         <label className="field md:col-span-2">
           <span className="label">Assigned advisor</span>
-          <input
-            className="input"
-            name="assigned_advisor_name"
-            required
-            placeholder="Advisor name"
-            defaultValue={access.isAgent ? access.profile.full_name || access.user.email : ""}
-          />
+          <input className="input" name="assigned_advisor_name" required placeholder="Advisor name" />
         </label>
         <label className="field md:col-span-2">
           <span className="label">Notes</span>

@@ -11,11 +11,21 @@ export function formatCurrency(value: number | string | null | undefined) {
 
 export function formatDate(value: string | null | undefined) {
   if (!value) return "Not set";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not set";
+
   return new Intl.DateTimeFormat("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
-  }).format(new Date(value));
+  }).format(date);
+}
+
+export function dateTimeValue(value: string | null | undefined) {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const date = new Date(value);
+  const time = date.getTime();
+  return Number.isNaN(time) ? Number.POSITIVE_INFINITY : time;
 }
 
 export function toDateInputValue(date: Date) {

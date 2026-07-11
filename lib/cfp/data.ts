@@ -6,6 +6,7 @@ import {
   type GoalProgressLog,
   type NextStepAction,
 } from "./supabase";
+import { dateTimeValue } from "./format";
 import { statusRank } from "./status";
 import { canAccessCustomer, filterCustomersForAccess, requireCurrentAccess } from "./access";
 
@@ -65,7 +66,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   const goals = ((goalsResult.data ?? []) as DashboardData["goals"]).filter((goal) => activeCustomerIds.has(goal.customer_id)).sort((a, b) => {
     const statusDelta = statusRank(a.on_track_status) - statusRank(b.on_track_status);
     if (statusDelta) return statusDelta;
-    return new Date(a.target_date).getTime() - new Date(b.target_date).getTime();
+    return dateTimeValue(a.target_date) - dateTimeValue(b.target_date);
   });
 
   return {

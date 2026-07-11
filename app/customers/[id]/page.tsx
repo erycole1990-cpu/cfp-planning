@@ -12,7 +12,7 @@ import {
   updateGoalPriority,
 } from "@/app/actions";
 import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge, StatusBadge } from "@/app/ui";
-import { formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
+import { dateTimeValue, formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
 import { getCustomerDetail } from "@/lib/cfp/data";
 import { requireCurrentAccess } from "@/lib/cfp/access";
 import { AddGoalForm } from "./add-goal-form";
@@ -43,6 +43,8 @@ function nextPriority(priority: string, direction: "up" | "down") {
 function yearsUntil(targetDate: string) {
   const today = new Date();
   const target = new Date(`${targetDate}T00:00:00`);
+  if (Number.isNaN(target.getTime())) return 0;
+
   const years = (target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
   return Math.max(0, Math.round(years * 10) / 10);
 }
@@ -96,7 +98,8 @@ function frequencyLabel(frequency: string | null) {
 }
 
 function statementDate(item: FinancialStatementItem) {
-  return new Date(item.statement_date ? `${item.statement_date}T00:00:00` : item.created_at);
+  const date = new Date(item.statement_date ? `${item.statement_date}T00:00:00` : item.created_at);
+  return Number.isNaN(date.getTime()) ? new Date(0) : date;
 }
 
 function formatStatementMonth(item: FinancialStatementItem) {
@@ -369,14 +372,14 @@ export default async function CustomerDetailPage({
       title: action.completed ? "Action completed" : "Action created",
       detail: `${action.action_title} · ${action.assigned_to || "Unassigned"}`,
     })),
-  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  ].sort((a, b) => dateTimeValue(b.date) - dateTimeValue(a.date));
 
   const sortedGoals = (data.goals ?? []).slice().sort((a, b) => {
     const priorityDelta =
       (priorityOrder[a.priority as keyof typeof priorityOrder] ?? 1) -
       (priorityOrder[b.priority as keyof typeof priorityOrder] ?? 1);
     if (priorityDelta) return priorityDelta;
-    return new Date(a.target_date).getTime() - new Date(b.target_date).getTime();
+    return dateTimeValue(a.target_date) - dateTimeValue(b.target_date);
   });
   const statementItems = data.statementItems ?? [];
   const balanceSheetItems = statementItems.filter((item) => item.statement_type === "balance_sheet");

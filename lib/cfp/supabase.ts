@@ -1,4 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient as createRawSupabaseClient } from "@supabase/supabase-js";
+import { createClient as createServerSupabaseClient } from "@/lib/supabase/server";
 
 export type Customer = {
   id: string;
@@ -97,12 +98,25 @@ export function createCfpClient() {
   if (!config) return null;
 
   try {
-    return createClient(config.url, config.serviceRoleKey || config.anonKey, {
+    return createRawSupabaseClient(config.url, config.serviceRoleKey || config.anonKey, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
       },
     });
+  } catch {
+    return null;
+  }
+}
+
+export async function createCfpServerClient() {
+  const config = getSupabaseConfig();
+  if (!config) return null;
+
+  if (config.serviceRoleKey) return createCfpClient();
+
+  try {
+    return await createServerSupabaseClient();
   } catch {
     return null;
   }

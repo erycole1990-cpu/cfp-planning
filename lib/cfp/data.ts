@@ -1,5 +1,5 @@
 import {
-  createCfpClient,
+  createCfpServerClient,
   type Customer,
   type FinancialGoal,
   type FinancialStatementItem,
@@ -21,7 +21,7 @@ export type DashboardData = {
 
 export async function getDashboardData(): Promise<DashboardData> {
   const access = await requireCurrentAccess();
-  const supabase = createCfpClient();
+  const supabase = await createCfpServerClient();
   if (!supabase) {
     return { configured: false, customers: [], goals: [], actions: [], latestLogsByGoal: {} };
   }
@@ -82,7 +82,7 @@ export type CustomerServiceFilter = "active" | "inactive" | "all";
 
 export async function getCustomersData(filter: CustomerServiceFilter = "active") {
   const access = await requireCurrentAccess();
-  const supabase = createCfpClient();
+  const supabase = await createCfpServerClient();
   if (!supabase) return { configured: false, customers: [], goals: [] as FinancialGoal[] };
 
   let customersQuery = supabase.from("customers").select("*").order("full_name");
@@ -117,7 +117,7 @@ export async function getCustomersData(filter: CustomerServiceFilter = "active")
 
 export async function getCustomerDetail(id: string) {
   const access = await requireCurrentAccess();
-  const supabase = createCfpClient();
+  const supabase = await createCfpServerClient();
   if (!supabase) return { configured: false };
 
   const customerResult = await supabase.from("customers").select("*").eq("id", id).single();
@@ -160,7 +160,7 @@ export async function getCustomerDetail(id: string) {
 }
 
 async function goalIdsForCustomer(customerId: string) {
-  const supabase = createCfpClient();
+  const supabase = await createCfpServerClient();
   if (!supabase) return [];
   const { data } = await supabase.from("financial_goals").select("id").eq("customer_id", customerId);
   const ids = (data ?? []).map((goal) => goal.id);
@@ -169,7 +169,7 @@ async function goalIdsForCustomer(customerId: string) {
 
 export async function getGoalDetail(customerId: string, goalId: string) {
   const access = await requireCurrentAccess();
-  const supabase = createCfpClient();
+  const supabase = await createCfpServerClient();
   if (!supabase) return { configured: false };
 
   const customerResult = await supabase.from("customers").select("*").eq("id", customerId).single();

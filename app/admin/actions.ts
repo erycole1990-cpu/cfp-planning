@@ -3,10 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireCurrentAccess } from "@/lib/cfp/access";
-import { createCfpClient } from "@/lib/cfp/supabase";
+import { createCfpServerClient } from "@/lib/cfp/supabase";
 
-function requireSupabase() {
-  const supabase = createCfpClient();
+async function requireSupabase() {
+  const supabase = await createCfpServerClient();
   if (!supabase) throw new Error("Supabase is not configured.");
   return supabase;
 }
@@ -24,7 +24,7 @@ function text(formData: FormData, key: string) {
 
 export async function updateUserAccess(formData: FormData) {
   const access = await requireAdmin();
-  const supabase = requireSupabase();
+  const supabase = await requireSupabase();
   const userId = String(formData.get("user_id") || "");
   const role = String(formData.get("role") || "");
   const status = String(formData.get("status") || "");
@@ -48,7 +48,7 @@ export async function updateUserAccess(formData: FormData) {
 
 export async function reassignCustomer(formData: FormData) {
   const access = await requireAdmin();
-  const supabase = requireSupabase();
+  const supabase = await requireSupabase();
   const customerId = String(formData.get("customer_id") || "");
   const agentId = text(formData, "assigned_agent_user_id");
   const reason = text(formData, "reason");
@@ -83,7 +83,7 @@ export async function reassignCustomer(formData: FormData) {
 
 export async function reviewClientSubmission(formData: FormData) {
   const access = await requireAdmin();
-  const supabase = requireSupabase();
+  const supabase = await requireSupabase();
   const submissionId = String(formData.get("submission_id") || "");
   const decision = String(formData.get("decision") || "");
   const notes = text(formData, "review_notes");

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AppShell, EmptyState, ErrorNotice, PageHeader } from "@/app/ui";
 import { requireCurrentAccess } from "@/lib/cfp/access";
-import { createCfpClient } from "@/lib/cfp/supabase";
+import { createCfpServerClient } from "@/lib/cfp/supabase";
 import { formatDate } from "@/lib/cfp/format";
 import { reassignCustomer, reviewClientSubmission, updateUserAccess } from "../actions";
 
@@ -40,7 +40,7 @@ export default async function AdminAccessPage({
 }) {
   const access = await requireCurrentAccess();
   const query = (await searchParams) ?? {};
-  const supabase = createCfpClient();
+  const supabase = await createCfpServerClient();
 
   if (!access.isAdmin) {
     return (

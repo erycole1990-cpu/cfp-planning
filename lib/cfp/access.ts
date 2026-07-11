@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
-import { createCfpClient, type Customer } from "./supabase";
+import { createCfpServerClient, type Customer } from "./supabase";
 
 export type UserRole = "admin" | "agent" | "client";
 export type UserProfile = {
@@ -71,7 +71,7 @@ export async function getCurrentAccess(): Promise<AccessContext | null> {
   const email = normalizeEmail(user?.email);
   if (!user || !email) return null;
 
-  const supabase = createCfpClient();
+  const supabase = await createCfpServerClient();
   const userIdentity = { id: user.id, email };
   const fullName = user.user_metadata?.full_name || user.user_metadata?.name || email;
   if (!supabase) return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName));

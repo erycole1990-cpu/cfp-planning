@@ -33,6 +33,11 @@ export default async function LoginPage({
             Signed out.
           </div>
         ) : null}
+        {(query as { authConfig?: string }).authConfig ? (
+          <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
+            Login is missing Supabase environment variables in this deployment.
+          </div>
+        ) : null}
         {access ? (
           <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
             Your account is waiting for admin approval.

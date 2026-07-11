@@ -55,6 +55,10 @@ function accessFromProfile(user: { id: string; email: string }, profile: UserPro
 }
 
 export async function getCurrentAccess(): Promise<AccessContext | null> {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    return null;
+  }
+
   const auth = await createAuthClient();
   const {
     data: { user },

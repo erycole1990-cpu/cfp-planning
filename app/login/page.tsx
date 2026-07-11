@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { sendMagicLink } from "./actions";
 import { LoginForm } from "./login-form";
 
@@ -6,9 +7,22 @@ export const dynamic = "force-dynamic";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ sent?: string; email?: string; signedOut?: string }>;
+  searchParams?: Promise<{ sent?: string; email?: string; signedOut?: string; code?: string; next?: string }>;
 }) {
-  const query = ((await searchParams) ?? {}) as { sent?: string; email?: string; signedOut?: string; authConfig?: string; authError?: string };
+  const query = ((await searchParams) ?? {}) as {
+    sent?: string;
+    email?: string;
+    signedOut?: string;
+    authConfig?: string;
+    authError?: string;
+    code?: string;
+    next?: string;
+  };
+  if (query.code) {
+    const params = new URLSearchParams({ code: query.code });
+    if (query.next) params.set("next", query.next);
+    redirect(`/auth/callback?${params.toString()}`);
+  }
 
   return (
     <main className="mx-auto grid min-h-screen max-w-xl place-items-center px-4 py-10">

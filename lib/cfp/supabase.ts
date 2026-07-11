@@ -113,11 +113,9 @@ export async function createCfpServerClient() {
   const config = getSupabaseConfig();
   if (!config) return null;
 
-  if (config.serviceRoleKey) return createCfpClient();
-
   try {
     return await createServerSupabaseClient();
   } catch {
-    return null;
+    return createCfpClient();
   }
 }

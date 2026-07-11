@@ -1,9 +1,30 @@
 import Link from "next/link";
 import { createCustomer } from "@/app/actions";
-import { AppShell, PageHeader } from "@/app/ui";
+import { AppShell, EmptyState, PageHeader } from "@/app/ui";
 import { RiskProfileField } from "@/app/customers/risk-profile-field";
+import { requireCurrentAccess } from "@/lib/cfp/access";
 
-export default function NewCustomerPage() {
+export const dynamic = "force-dynamic";
+
+export default async function NewCustomerPage() {
+  const access = await requireCurrentAccess();
+
+  if (!access.isAdmin && !access.isAgent) {
+    return (
+      <AppShell>
+        <EmptyState
+          title="Advisor access required"
+          body="Only admins and active agents can add a new customer record. Client updates should be added inside their own planning workspace for review."
+          action={
+            <Link className="btn btn-secondary" href="/customers">
+              Back to Customers
+            </Link>
+          }
+        />
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <PageHeader
@@ -115,7 +136,13 @@ export default function NewCustomerPage() {
         <RiskProfileField defaultValue="moderate" />
         <label className="field md:col-span-2">
           <span className="label">Assigned advisor</span>
-          <input className="input" name="assigned_advisor_name" required placeholder="Advisor name" />
+          <input
+            className="input"
+            name="assigned_advisor_name"
+            required
+            placeholder="Advisor name"
+            defaultValue={access.isAgent ? access.profile.full_name || access.user.email : ""}
+          />
         </label>
         <label className="field md:col-span-2">
           <span className="label">Notes</span>

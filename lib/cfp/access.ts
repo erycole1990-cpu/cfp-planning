@@ -32,6 +32,28 @@ function activeRoleFor(email: string, existing?: UserProfile | null): Pick<UserP
   return { role: "client", status: "pending" };
 }
 
+function fallbackProfile(user: { id: string; email: string }, fullName?: string | null): UserProfile {
+  const seed = activeRoleFor(user.email);
+  return {
+    id: user.id,
+    email: user.email,
+    full_name: fullName || user.email,
+    role: seed.role,
+    status: seed.status,
+    created_at: new Date().toISOString(),
+  };
+}
+
+function accessFromProfile(user: { id: string; email: string }, profile: UserProfile): AccessContext {
+  return {
+    user,
+    profile,
+    isAdmin: profile.role === "admin" && profile.status === "active",
+    isAgent: profile.role === "agent" && profile.status === "active",
+    isClient: profile.role === "client" && profile.status === "active",
+  };
+}
+
 export async function getCurrentAccess(): Promise<AccessContext | null> {
   const auth = await createAuthClient();
   const {
@@ -41,7 +63,9 @@ export async function getCurrentAccess(): Promise<AccessContext | null> {
   if (!user || !email) return null;
 
   const supabase = createCfpClient();
-  if (!supabase) return null;
+  const userIdentity = { id: user.id, email };
+  const fullName = user.user_metadata?.full_name || user.user_metadata?.name || email;
+  if (!supabase) return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName));
 
   const { data: existing } = await supabase.from("user_profiles").select("*").eq("id", user.id).maybeSingle();
   const profileSeed = activeRoleFor(email, existing as UserProfile | null);
@@ -59,16 +83,12 @@ export async function getCurrentAccess(): Promise<AccessContext | null> {
     .upsert(payload, { onConflict: "id" })
     .select("*")
     .single();
-  if (error) throw new Error(error.message);
+  if (error) {
+    return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName));
+  }
 
   const typedProfile = profile as UserProfile;
-  return {
-    user: { id: user.id, email },
-    profile: typedProfile,
-    isAdmin: typedProfile.role === "admin" && typedProfile.status === "active",
-    isAgent: typedProfile.role === "agent" && typedProfile.status === "active",
-    isClient: typedProfile.role === "client" && typedProfile.status === "active",
-  };
+  return accessFromProfile(userIdentity, typedProfile);
 }
 
 export async function requireCurrentAccess() {

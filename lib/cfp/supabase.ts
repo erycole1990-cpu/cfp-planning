@@ -96,10 +96,14 @@ export function createCfpClient() {
   const config = getSupabaseConfig();
   if (!config) return null;
 
-  return createClient(config.url, config.serviceRoleKey || config.anonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
+  try {
+    return createClient(config.url, config.serviceRoleKey || config.anonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+  } catch {
+    return null;
+  }
 }

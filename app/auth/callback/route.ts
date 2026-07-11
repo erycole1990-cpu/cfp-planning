@@ -11,8 +11,15 @@ export async function GET(request: Request) {
       return NextResponse.redirect(new URL("/login?authConfig=missing", requestUrl.origin));
     }
 
-    const supabase = await createClient();
-    await supabase.auth.exchangeCodeForSession(code);
+    try {
+      const supabase = await createClient();
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) {
+        return NextResponse.redirect(new URL(`/login?authError=${encodeURIComponent(error.message)}`, requestUrl.origin));
+      }
+    } catch {
+      return NextResponse.redirect(new URL("/login?authError=callback_failed", requestUrl.origin));
+    }
   }
 
   return NextResponse.redirect(new URL(next, requestUrl.origin));

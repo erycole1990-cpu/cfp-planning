@@ -59,10 +59,15 @@ export async function getCurrentAccess(): Promise<AccessContext | null> {
     return null;
   }
 
-  const auth = await createAuthClient();
-  const {
-    data: { user },
-  } = await auth.auth.getUser();
+  let user;
+  try {
+    const auth = await createAuthClient();
+    const result = await auth.auth.getUser();
+    user = result.data.user;
+  } catch {
+    return null;
+  }
+
   const email = normalizeEmail(user?.email);
   if (!user || !email) return null;
 

@@ -12,7 +12,7 @@ export default async function LoginPage({
 }) {
   const access = await getCurrentAccess();
   if (access?.profile.status === "active") redirect("/");
-  const query = (await searchParams) ?? {};
+  const query = ((await searchParams) ?? {}) as { sent?: string; email?: string; signedOut?: string; authConfig?: string; authError?: string };
 
   return (
     <main className="mx-auto grid min-h-screen max-w-xl place-items-center px-4 py-10">
@@ -33,9 +33,14 @@ export default async function LoginPage({
             Signed out.
           </div>
         ) : null}
-        {(query as { authConfig?: string }).authConfig ? (
+        {query.authConfig ? (
           <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
             Login is missing Supabase environment variables in this deployment.
+          </div>
+        ) : null}
+        {query.authError ? (
+          <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800">
+            Login could not finish: {query.authError}
           </div>
         ) : null}
         {access ? (

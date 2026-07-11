@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { calculateOnTrackStatus } from "@/lib/cfp/status";
 import { createCfpServerClient, type Customer } from "@/lib/cfp/supabase";
-import { canAccessCustomer, requireCurrentAccess } from "@/lib/cfp/access";
+import { canAccessCustomer, getCurrentAccess, requireCurrentAccess } from "@/lib/cfp/access";
+import { createClient as createSessionSupabaseClient } from "@/lib/supabase/server";
 
 async function requireSupabase() {
   const supabase = await createCfpServerClient();
@@ -71,12 +72,51 @@ function isRedirectError(error: unknown) {
   );
 }
 
-function friendlySaveError(error: unknown) {
+function supabaseProjectHost() {
+  try {
+    return process.env.NEXT_PUBLIC_SUPABASE_URL ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).host : "not configured";
+  } catch {
+    return "not configured";
+  }
+}
+
+async function accessDiagnostics() {
+  try {
+    const access = await getCurrentAccess();
+    const sessionSupabase = await createSessionSupabaseClient();
+    const roleResult = await sessionSupabase.rpc("cfp_user_role");
+    const adminResult = await sessionSupabase.rpc("cfp_is_admin");
+    const profileResult = access
+      ? await sessionSupabase.from("user_profiles").select("id,email,role,status").eq("id", access.user.id).maybeSingle()
+      : null;
+
+    const appAccess = access
+      ? `App session ${access.user.email}; app profile ${access.profile.role}/${access.profile.status}.`
+      : "App session was not found.";
+    const dbRole = roleResult.error ? `Database role check error: ${roleResult.error.message}.` : `Database role: ${roleResult.data || "not active"}.`;
+    const dbAdmin = adminResult.error
+      ? `Database admin check error: ${adminResult.error.message}.`
+      : `Database admin check: ${adminResult.data ? "yes" : "no"}.`;
+    const profile = profileResult?.error
+      ? `Profile row check error: ${profileResult.error.message}.`
+      : `Profile row: ${
+          profileResult?.data ? `${profileResult.data.email} ${profileResult.data.role}/${profileResult.data.status}` : "not found for this login"
+        }.`;
+
+    return `${appAccess} ${dbRole} ${dbAdmin} ${profile} Supabase project: ${supabaseProjectHost()}.`;
+  } catch (diagnosticError) {
+    const message = diagnosticError instanceof Error ? diagnosticError.message : "unknown diagnostic error";
+    return `Could not read access diagnostics: ${message}. Supabase project: ${supabaseProjectHost()}.`;
+  }
+}
+
+async function friendlySaveError(error: unknown) {
   const message = error instanceof Error ? error.message : "The record could not be saved.";
   const lowerMessage = message.toLowerCase();
 
   if (lowerMessage.includes("row-level security") || lowerMessage.includes("permission denied")) {
-    return "Customer could not be saved because your login is not active as an admin or agent in Supabase yet. Please activate your user profile, then try again.";
+    const diagnostics = await accessDiagnostics();
+    return `Database blocked this save: ${message}. ${diagnostics}`;
   }
 
   if (lowerMessage.includes("duplicate key")) {
@@ -149,7 +189,7 @@ export async function createCustomerFromIntake(_state: CustomerFormState, formDa
     return { error: null };
   } catch (error) {
     if (isRedirectError(error)) throw error;
-    return { error: friendlySaveError(error) };
+    return { error: await friendlySaveError(error) };
   }
 }
 

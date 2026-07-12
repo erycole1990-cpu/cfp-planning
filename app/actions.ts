@@ -162,7 +162,7 @@ export async function createCustomer(formData: FormData) {
     source_of_wealth: text(formData, "source_of_wealth"),
     risk_profile: requiredText(formData, "risk_profile"),
     assigned_advisor_name: access.isAgent ? access.profile.full_name || access.user.email : requiredText(formData, "assigned_advisor_name"),
-    assigned_agent_user_id: access.isAgent ? access.user.id : null,
+    assigned_agent_user_id: access.user.id,
     client_stage: "lead",
     notes: text(formData, "notes"),
   };

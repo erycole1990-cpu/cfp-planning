@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireCurrentAccess } from "@/lib/cfp/access";
+import { sendAgentAssignmentEmail } from "@/lib/cfp/notifications";
 import { createCfpServerClient } from "@/lib/cfp/supabase";
 
 async function requireSupabase() {
@@ -88,30 +89,54 @@ export async function reassignCustomer(formData: FormData) {
   if (!customerId) throw new Error("Customer is required.");
   if (!reason) throw new Error("Reassignment reason is required.");
 
+  const { data: customer, error: customerError } = await supabase
+    .from("customers")
+    .select("id, full_name, email, assigned_agent_user_id, assigned_advisor_name")
+    .eq("id", customerId)
+    .single();
+  if (customerError) throw new Error(customerError.message);
+
   const { data: agent } = agentId
     ? await supabase.from("user_profiles").select("*").eq("id", agentId).single()
     : { data: null };
 
   const payload = {
     assigned_agent_user_id: agentId,
-    assigned_advisor_name: agent ? agent.full_name || agent.email : "Unassigned",
+    assigned_advisor_name: agent ? agent.full_name || agent.email || "Agent" : "Unassigned",
   };
 
   const { error } = await supabase.from("customers").update(payload).eq("id", customerId);
   if (error) throw new Error(error.message);
+
+  const emailNotification = await sendAgentAssignmentEmail({
+    to: agent?.email ?? null,
+    agentName: agent ? agent.full_name || agent.email || "Agent" : "Agent",
+    customerName: customer.full_name,
+    adminEmail: access.user.email,
+    reason,
+  });
 
   await supabase.from("audit_logs").insert({
     actor: access.user.email,
     action: "customer_reassigned",
     entity_type: "customers",
     entity_id: customerId,
-    payload: { ...payload, reason },
+    payload: {
+      previous_agent_user_id: customer.assigned_agent_user_id,
+      previous_advisor_name: customer.assigned_advisor_name,
+      customer_name: customer.full_name,
+      customer_email: customer.email,
+      agent_email: agent?.email ?? null,
+      ...payload,
+      reason,
+      email_notification: emailNotification,
+    },
   });
 
   revalidatePath("/");
   revalidatePath("/customers");
   revalidatePath("/admin/access");
-  redirect("/admin/access?saved=reassigned");
+  redirect(`/admin/access?saved=reassigned&email=${emailNotification.status}`);
 }
 
 export async function reviewClientSubmission(formData: FormData) {

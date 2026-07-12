@@ -33,10 +33,28 @@ type SubmissionRow = {
   submitted_by?: { email: string } | null;
 };
 
+type AssignmentLogRow = {
+  id: string;
+  created_at: string;
+  actor: string | null;
+  entity_id: string | null;
+  payload: {
+    customer_name?: string | null;
+    previous_advisor_name?: string | null;
+    assigned_advisor_name?: string | null;
+    agent_email?: string | null;
+    reason?: string | null;
+    email_notification?: {
+      status?: string;
+      message?: string;
+    } | null;
+  } | null;
+};
+
 export default async function AdminAccessPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ saved?: string }>;
+  searchParams?: Promise<{ saved?: string; email?: string }>;
 }) {
   const access = await requireCurrentAccess();
   const query = (await searchParams) ?? {};
@@ -58,7 +76,7 @@ export default async function AdminAccessPage({
     );
   }
 
-  const [profilesResult, customersResult, submissionsResult] = await Promise.all([
+  const [profilesResult, customersResult, submissionsResult, assignmentLogsResult] = await Promise.all([
     supabase.from("user_profiles").select("*").order("created_at", { ascending: false }),
     supabase.from("customers").select("id, full_name, email, assigned_agent_user_id, assigned_advisor_name").order("full_name"),
     supabase
@@ -66,6 +84,12 @@ export default async function AdminAccessPage({
       .select("*, customer:customers(full_name)")
       .eq("review_status", "pending")
       .order("created_at", { ascending: true }),
+    supabase
+      .from("audit_logs")
+      .select("id, created_at, actor, entity_id, payload")
+      .eq("action", "customer_reassigned")
+      .order("created_at", { ascending: false })
+      .limit(25),
   ]);
 
   const profiles = (profilesResult.data ?? []) as Profile[];
@@ -73,7 +97,27 @@ export default async function AdminAccessPage({
   const pendingAgents = profiles.filter((profile) => profile.role === "agent" && profile.status === "pending");
   const customers = (customersResult.data ?? []) as CustomerRow[];
   const submissions = (submissionsResult.data ?? []) as SubmissionRow[];
-  const error = profilesResult.error?.message || customersResult.error?.message || submissionsResult.error?.message;
+  const assignmentLogs = (assignmentLogsResult.data ?? []) as AssignmentLogRow[];
+  const error =
+    profilesResult.error?.message || customersResult.error?.message || submissionsResult.error?.message || assignmentLogsResult.error?.message;
+  const savedMessage =
+    query.saved === "reassigned"
+      ? query.email === "sent"
+        ? "Client reassigned successfully and the agent email was sent."
+        : query.email === "not_configured"
+          ? "Client reassigned successfully. Email notifications are not configured yet, so no email was sent."
+          : query.email === "failed"
+            ? "Client reassigned successfully. The email notification failed, but the assignment history was saved."
+            : "Client reassigned successfully."
+      : query.saved === "user"
+        ? "User access saved."
+        : query.saved === "synced"
+          ? "Login profile synced."
+          : query.saved === "submission"
+            ? "Client submission reviewed."
+            : query.saved
+              ? "Admin change saved."
+              : null;
 
   return (
     <AppShell>
@@ -87,9 +131,9 @@ export default async function AdminAccessPage({
         }
       />
       <ErrorNotice message={error} />
-      {query.saved ? (
+      {savedMessage ? (
         <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
-          Admin change saved.
+          {savedMessage}
         </div>
       ) : null}
 
@@ -284,6 +328,68 @@ export default async function AdminAccessPage({
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold">Assignment history</h3>
+                <p className="mt-1 text-sm text-[#68756f]">
+                  Recent client ownership changes for admin handover and accountability.
+                </p>
+              </div>
+              <span className="rounded-full border border-[#dce2dc] bg-[#f5f7f4] px-3 py-1 text-sm font-bold">
+                {assignmentLogs.length} recent
+              </span>
+            </div>
+            <div className="mt-3 table-wrap rounded-md border border-[#dce2dc]">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Client</th>
+                    <th>From / To</th>
+                    <th>Reason</th>
+                    <th>Admin / Email</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {assignmentLogs.map((log) => {
+                    const notification = log.payload?.email_notification?.status || "not sent";
+                    return (
+                      <tr key={log.id}>
+                        <td>
+                          {new Date(log.created_at).toLocaleString("en-MY", {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}
+                        </td>
+                        <td>{log.payload?.customer_name || "Customer"}</td>
+                        <td>
+                          <p className="text-sm text-[#68756f]">From: {log.payload?.previous_advisor_name || "Unassigned"}</p>
+                          <p className="font-bold">To: {log.payload?.assigned_advisor_name || "Unassigned"}</p>
+                        </td>
+                        <td>{log.payload?.reason || "No reason recorded"}</td>
+                        <td>
+                          <p>{log.actor || "Admin"}</p>
+                          <p className="mt-1 text-sm text-[#68756f]">
+                            Email: {notification}
+                            {log.payload?.agent_email ? ` to ${log.payload.agent_email}` : ""}
+                          </p>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!assignmentLogs.length ? (
+                    <tr>
+                      <td colSpan={5} className="text-sm text-[#68756f]">
+                        No reassignment history yet.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 

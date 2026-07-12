@@ -22,11 +22,6 @@ export function AddCustomerForm() {
 
   return (
     <form action={formAction} className="panel grid max-w-5xl gap-4 p-5 md:grid-cols-2">
-      <div className="rounded-md bg-[#f5f7f4] p-4 text-sm font-semibold text-[#405047] md:col-span-2">
-        Create the customer profile first. After saving, the app opens the full planning workspace for goals, calculators,
-        statements, and progress tracking.
-      </div>
-
       {state.error ? (
         <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800 md:col-span-2" role="alert">
           {state.error}

@@ -46,6 +46,39 @@ export async function updateUserAccess(formData: FormData) {
   redirect("/admin/access?saved=user");
 }
 
+export async function syncAuthUserProfile(formData: FormData) {
+  const access = await requireAdmin();
+  const supabase = await requireSupabase();
+  const email = text(formData, "email");
+  const role = String(formData.get("role") || "agent");
+  const status = String(formData.get("status") || "pending");
+  const fullName = text(formData, "full_name");
+  if (!email) throw new Error("Email is required.");
+  if (!["admin", "agent", "client"].includes(role)) throw new Error("Invalid role.");
+  if (!["active", "pending", "inactive"].includes(status)) throw new Error("Invalid status.");
+
+  const { data: profile, error } = await supabase
+    .rpc("cfp_admin_sync_user_profile", {
+      target_email: email,
+      target_role: role,
+      target_status: status,
+      target_full_name: fullName,
+    })
+    .single();
+  if (error) throw new Error(error.message);
+
+  await supabase.from("audit_logs").insert({
+    actor: access.user.email,
+    action: "user_profile_synced",
+    entity_type: "user_profiles",
+    entity_id: typeof profile === "object" && profile && "id" in profile ? String(profile.id) : null,
+    payload: { email, role, status },
+  });
+
+  revalidatePath("/admin/access");
+  redirect("/admin/access?saved=synced");
+}
+
 export async function reassignCustomer(formData: FormData) {
   const access = await requireAdmin();
   const supabase = await requireSupabase();

@@ -3,7 +3,7 @@ import { AppShell, EmptyState, ErrorNotice, PageHeader } from "@/app/ui";
 import { requireCurrentAccess } from "@/lib/cfp/access";
 import { createCfpServerClient } from "@/lib/cfp/supabase";
 import { formatDate } from "@/lib/cfp/format";
-import { reassignCustomer, reviewClientSubmission, updateUserAccess } from "../actions";
+import { reassignCustomer, reviewClientSubmission, syncAuthUserProfile, updateUserAccess } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -139,6 +139,44 @@ export default async function AdminAccessPage({
             ))}
             {!pendingAgents.length ? <p className="text-sm text-[#68756f]">No pending agent requests.</p> : null}
           </div>
+
+          <form action={syncAuthUserProfile} className="mt-5 grid gap-3 rounded-md border border-[#dce2dc] p-4">
+            <div>
+              <h3 className="font-bold">Recover missing login</h3>
+              <p className="mt-1 text-sm text-[#68756f]">
+                Use this when an agent can sign in but does not appear above. The email must already exist in Supabase Auth.
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[1.3fr_1fr_0.8fr_0.8fr_auto]">
+              <label className="field">
+                <span className="label">Email</span>
+                <input className="input" name="email" type="email" required placeholder="agent@example.com" />
+              </label>
+              <label className="field">
+                <span className="label">Name</span>
+                <input className="input" name="full_name" placeholder="Optional" />
+              </label>
+              <label className="field">
+                <span className="label">Role</span>
+                <select className="input" name="role" defaultValue="agent">
+                  <option value="agent">Agent</option>
+                  <option value="client">Client</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="label">Status</span>
+                <select className="input" name="status" defaultValue="pending">
+                  <option value="pending">Pending</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </label>
+              <button className="btn self-end" type="submit">
+                Sync
+              </button>
+            </div>
+          </form>
         </section>
 
         <section className="panel p-5">

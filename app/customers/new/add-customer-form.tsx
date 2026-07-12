@@ -7,18 +7,37 @@ import { RiskProfileField } from "@/app/customers/risk-profile-field";
 
 const initialState: CustomerFormState = { error: null };
 
-function SubmitButton() {
+type AgentOption = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+function SubmitButton({ disabled }: { disabled?: boolean }) {
   const { pending } = useFormStatus();
 
   return (
-    <button className="btn" type="submit" disabled={pending}>
+    <button className="btn" type="submit" disabled={pending || disabled}>
       {pending ? "Saving..." : "Save Customer"}
     </button>
   );
 }
 
-export function AddCustomerForm() {
+export function AddCustomerForm({
+  activeAgents,
+  agentLoadError,
+  currentUserName,
+  isAdmin,
+  isAgent,
+}: {
+  activeAgents: AgentOption[];
+  agentLoadError: string | null;
+  currentUserName: string;
+  isAdmin: boolean;
+  isAgent: boolean;
+}) {
   const [state, formAction] = useActionState(createCustomerFromIntake, initialState);
+  const assignmentBlocked = isAdmin && activeAgents.length === 0;
 
   return (
     <form action={formAction} className="panel grid max-w-5xl gap-4 p-5 md:grid-cols-2">
@@ -124,16 +143,46 @@ export function AddCustomerForm() {
         <h2 className="text-lg font-bold">Planning assignment</h2>
       </div>
       <RiskProfileField defaultValue="moderate" openByDefault />
-      <label className="field md:col-span-2">
-        <span className="label">Assigned advisor</span>
-        <input className="input" name="assigned_advisor_name" required placeholder="Advisor name" />
-      </label>
+      {isAdmin ? (
+        <>
+          <label className="field md:col-span-2">
+            <span className="label">Assigned advisor</span>
+            <select className="input" name="assigned_agent_user_id" required defaultValue="">
+              <option value="">Choose approved active agent</option>
+              {activeAgents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.name} ({agent.email})
+                </option>
+              ))}
+            </select>
+          </label>
+          {assignmentBlocked ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900 md:col-span-2">
+              Approve at least one agent before creating a customer, or sign in as an active agent to auto-assign the customer.
+            </div>
+          ) : null}
+          {agentLoadError ? (
+            <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-800 md:col-span-2">
+              Agent list could not load: {agentLoadError}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+      {isAgent ? (
+        <div className="rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-4 md:col-span-2">
+          <p className="label">Assigned advisor</p>
+          <p className="font-bold">{currentUserName}</p>
+          <p className="mt-1 text-sm text-[#68756f]">
+            New customers you add are assigned to you automatically. Admins can reassign later with a recorded reason.
+          </p>
+        </div>
+      ) : null}
       <label className="field md:col-span-2">
         <span className="label">Notes</span>
         <textarea className="input min-h-28" name="notes" />
       </label>
       <div className="md:col-span-2">
-        <SubmitButton />
+        <SubmitButton disabled={assignmentBlocked} />
       </div>
     </form>
   );

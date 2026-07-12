@@ -144,6 +144,26 @@ export async function createCustomer(formData: FormData) {
   const access = await requireCurrentAccess();
   if (!access.isAdmin && !access.isAgent) throw new Error("Only admins and agents can add customers.");
   const supabase = await requireSupabase();
+  let assignedAgentUserId = access.user.id;
+  let assignedAdvisorName = access.profile.full_name || access.user.email;
+
+  if (access.isAdmin) {
+    const selectedAgentId = text(formData, "assigned_agent_user_id");
+    if (!selectedAgentId) throw new Error("Choose an approved active agent before saving this customer.");
+
+    const { data: agent, error: agentError } = await supabase
+      .from("user_profiles")
+      .select("id,email,full_name")
+      .eq("id", selectedAgentId)
+      .eq("role", "agent")
+      .eq("status", "active")
+      .single();
+
+    if (agentError || !agent) throw new Error("Choose an approved active agent before saving this customer.");
+    assignedAgentUserId = agent.id;
+    assignedAdvisorName = agent.full_name || agent.email;
+  }
+
   const payload = {
     full_name: requiredText(formData, "full_name"),
     email: text(formData, "email"),
@@ -161,8 +181,8 @@ export async function createCustomer(formData: FormData) {
     source_of_funds: text(formData, "source_of_funds"),
     source_of_wealth: text(formData, "source_of_wealth"),
     risk_profile: requiredText(formData, "risk_profile"),
-    assigned_advisor_name: access.isAgent ? access.profile.full_name || access.user.email : requiredText(formData, "assigned_advisor_name"),
-    assigned_agent_user_id: access.user.id,
+    assigned_advisor_name: assignedAdvisorName,
+    assigned_agent_user_id: assignedAgentUserId,
     client_stage: "lead",
     notes: text(formData, "notes"),
   };
@@ -172,7 +192,7 @@ export async function createCustomer(formData: FormData) {
   const customerId = String(data);
 
   await writeAudit({
-    actor: payload.assigned_advisor_name,
+    actor: access.profile.full_name || access.user.email,
     action: "customer_created",
     entityType: "customers",
     entityId: customerId,
@@ -215,7 +235,6 @@ export async function updateCustomer(formData: FormData) {
     source_of_funds: text(formData, "source_of_funds"),
     source_of_wealth: text(formData, "source_of_wealth"),
     risk_profile: requiredText(formData, "risk_profile"),
-    assigned_advisor_name: access.isClient ? undefined : requiredText(formData, "assigned_advisor_name"),
     notes: text(formData, "notes"),
   };
 

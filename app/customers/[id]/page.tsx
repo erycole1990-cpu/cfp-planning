@@ -627,10 +627,13 @@ export default async function CustomerDetailPage({
                     <h3 className="font-bold">Planning assignment</h3>
                   </div>
                   <RiskProfileField defaultValue={customer.risk_profile || "moderate"} />
-                  <label className="field sm:col-span-2">
+                  <div className="rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-4 sm:col-span-2">
                     <span className="label">Advisor</span>
-                    <input className="input" name="assigned_advisor_name" required defaultValue={customer.assigned_advisor_name || ""} />
-                  </label>
+                    <p className="font-bold">{customer.assigned_advisor_name || "Unassigned"}</p>
+                    <p className="mt-1 text-sm text-[#68756f]">
+                      Admins manage reassignment from Access and Reviews so ownership changes keep an audit record.
+                    </p>
+                  </div>
                   <label className="field sm:col-span-2">
                     <span className="label">Notes</span>
                     <textarea className="input min-h-24" name="notes" defaultValue={customer.notes || ""} />

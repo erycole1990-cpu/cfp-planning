@@ -959,10 +959,10 @@ export default async function CustomerDetailPage({
                               defaultValue={String(goal.current_amount)}
                             />
                           </label>
-                          <label className="field">
+                          <div className="rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-4">
                             <span className="label">Logged by</span>
-                            <input className="input" name="logged_by" required defaultValue={customer.assigned_advisor_name || ""} />
-                          </label>
+                            <p className="font-bold">{actor}</p>
+                          </div>
                           <label className="field">
                             <span className="label">Notes</span>
                             <textarea className="input min-h-24" name="notes" placeholder="What changed since the last review?" />

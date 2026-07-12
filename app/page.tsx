@@ -25,8 +25,12 @@ export default async function Home({
   const openActions = data.actions.filter((action) => !action.completed);
   const completedActions = data.actions.filter((action) => action.completed);
   const statusFilter = params.status || "all";
-  const goals =
-    statusFilter === "all" ? data.goals : data.goals.filter((goal) => goal.on_track_status === statusFilter);
+  const exceptionGoals = data.goals.filter((goal) => goal.on_track_status === "off_track" || goal.on_track_status === "at_risk");
+  const onTrackGoals = data.goals.filter((goal) => goal.on_track_status === "on_track").slice(0, 5);
+  const filteredGoals =
+    statusFilter === "all" ? [...exceptionGoals, ...onTrackGoals] : data.goals.filter((goal) => goal.on_track_status === statusFilter);
+  const goals = filteredGoals.slice(0, 10);
+  const hiddenGoalCount = Math.max(0, filteredGoals.length - goals.length);
   const customerIdsWithGoals = new Set(data.goals.map((goal) => goal.customer_id));
   const customersNeedingGoals = data.customers.filter((customer) => !customerIdsWithGoals.has(customer.id));
 
@@ -121,54 +125,68 @@ export default async function Home({
           ) : null}
 
           <section className="panel">
-            <div className="border-b border-[#dce2dc] p-4">
-              <h2 className="text-xl font-bold">Goal status queue</h2>
-              <p className="mt-1 text-sm text-[#68756f]">Off Track and At Risk goals stay visible until progress changes the status.</p>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#dce2dc] p-4">
+              <div>
+                <h2 className="text-xl font-bold">Priority goal queue</h2>
+                <p className="mt-1 text-sm text-[#68756f]">
+                  Exceptions appear first. On-track goals are capped so the dashboard stays focused.
+                </p>
+              </div>
+              <Link className="btn btn-secondary" href="/customers">
+                View Customers
+              </Link>
             </div>
             {goals.length ? (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Customer</th>
-                      <th>Goal</th>
-                      <th>Status</th>
-                      <th>Progress</th>
-                      <th>Last note</th>
-                      <th>Target date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {goals.map((goal) => {
-                      const latestLog = data.latestLogsByGoal[goal.id];
-                      return (
-                        <tr key={goal.id}>
-                          <td>
-                            <Link className="font-bold text-[#0f766e]" href={`/customers/${goal.customer_id}`}>
-                              {goal.customer?.full_name || "Customer"}
-                            </Link>
-                            <p className="mt-1 text-sm text-[#68756f]">{goal.customer?.assigned_advisor_name}</p>
-                          </td>
-                          <td>
-                            <Link className="font-semibold" href={`/customers/${goal.customer_id}/goals/${goal.id}`}>
-                              {goal.goal_name}
-                            </Link>
-                            <p className="mt-1 text-sm text-[#68756f]">{goal.goal_type}</p>
-                          </td>
-                          <td>
-                            <StatusBadge status={goal.on_track_status} />
-                          </td>
-                          <td>
-                            <span className="font-semibold">{formatCurrency(goal.current_amount)}</span>
-                            <span className="text-[#68756f]"> / {formatCurrency(goal.target_amount)}</span>
-                          </td>
-                          <td className="max-w-sm text-sm text-[#405047]">{latestLog?.notes || "No progress logged yet"}</td>
-                          <td>{formatDate(goal.target_date)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div>
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Customer</th>
+                        <th>Goal</th>
+                        <th>Status</th>
+                        <th>Progress</th>
+                        <th>Last note</th>
+                        <th>Target date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {goals.map((goal) => {
+                        const latestLog = data.latestLogsByGoal[goal.id];
+                        return (
+                          <tr key={goal.id}>
+                            <td>
+                              <Link className="font-bold text-[#0f766e]" href={`/customers/${goal.customer_id}`}>
+                                {goal.customer?.full_name || "Customer"}
+                              </Link>
+                              <p className="mt-1 text-sm text-[#68756f]">{goal.customer?.assigned_advisor_name}</p>
+                            </td>
+                            <td>
+                              <Link className="font-semibold" href={`/customers/${goal.customer_id}/goals/${goal.id}`}>
+                                {goal.goal_name}
+                              </Link>
+                              <p className="mt-1 text-sm text-[#68756f]">{goal.goal_type}</p>
+                            </td>
+                            <td>
+                              <StatusBadge status={goal.on_track_status} />
+                            </td>
+                            <td>
+                              <span className="font-semibold">{formatCurrency(goal.current_amount)}</span>
+                              <span className="text-[#68756f]"> / {formatCurrency(goal.target_amount)}</span>
+                            </td>
+                            <td className="max-w-sm text-sm text-[#405047]">{latestLog?.notes || "No progress logged yet"}</td>
+                            <td>{formatDate(goal.target_date)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {hiddenGoalCount ? (
+                  <div className="border-t border-[#dce2dc] p-4 text-sm font-semibold text-[#68756f]">
+                    Showing the first {goals.length} items. {hiddenGoalCount} more are hidden to keep this dashboard focused.
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="p-4">

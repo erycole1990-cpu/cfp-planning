@@ -578,7 +578,7 @@ export async function logProgress(formData: FormData) {
   if (access.isClient) throw new Error("Progress updates need advisor review before becoming official.");
   const goalId = requiredText(formData, "goal_id");
   const loggedAmount = numberValue(formData, "logged_amount");
-  const loggedBy = requiredText(formData, "logged_by");
+  const loggedBy = access.profile.full_name || access.user.email;
 
   const { data: goal, error: goalError } = await supabase
     .from("financial_goals")

@@ -171,10 +171,7 @@ export function AddCustomerForm({
       {isAgent ? (
         <div className="rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-4 md:col-span-2">
           <p className="label">Assigned advisor</p>
-          <p className="font-bold">{currentUserName}</p>
-          <p className="mt-1 text-sm text-[#68756f]">
-            New customers you add are assigned to you automatically. Admins can reassign later with a recorded reason.
-          </p>
+          <p className="font-bold">Assigned to {currentUserName}</p>
         </div>
       ) : null}
       <label className="field md:col-span-2">

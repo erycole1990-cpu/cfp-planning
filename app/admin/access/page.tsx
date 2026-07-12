@@ -70,6 +70,7 @@ export default async function AdminAccessPage({
 
   const profiles = (profilesResult.data ?? []) as Profile[];
   const agents = profiles.filter((profile) => profile.role === "agent" && profile.status === "active");
+  const pendingAgents = profiles.filter((profile) => profile.role === "agent" && profile.status === "pending");
   const customers = (customersResult.data ?? []) as CustomerRow[];
   const submissions = (submissionsResult.data ?? []) as SubmissionRow[];
   const error = profilesResult.error?.message || customersResult.error?.message || submissionsResult.error?.message;
@@ -93,6 +94,53 @@ export default async function AdminAccessPage({
       ) : null}
 
       <div className="grid gap-6">
+        <section className="panel p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold">Agent access requests</h2>
+              <p className="mt-1 text-sm text-[#68756f]">
+                New agents appear here first. Approve only after you confirm they should service clients under your team.
+              </p>
+            </div>
+            <span className="rounded-full border border-[#dce2dc] bg-[#f5f7f4] px-3 py-1 text-sm font-bold">
+              {pendingAgents.length} pending
+            </span>
+          </div>
+          <div className="mt-4 grid gap-3">
+            {pendingAgents.map((profile) => (
+              <div key={profile.id} className="rounded-md border border-[#dce2dc] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-bold">{profile.full_name || profile.email}</p>
+                    <p className="text-sm text-[#68756f]">{profile.email}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <form action={updateUserAccess}>
+                      <input type="hidden" name="user_id" value={profile.id} />
+                      <input type="hidden" name="full_name" value={profile.full_name || profile.email} />
+                      <input type="hidden" name="role" value="agent" />
+                      <input type="hidden" name="status" value="active" />
+                      <button className="btn" type="submit">
+                        Approve Agent
+                      </button>
+                    </form>
+                    <form action={updateUserAccess}>
+                      <input type="hidden" name="user_id" value={profile.id} />
+                      <input type="hidden" name="full_name" value={profile.full_name || profile.email} />
+                      <input type="hidden" name="role" value="agent" />
+                      <input type="hidden" name="status" value="inactive" />
+                      <button className="btn btn-secondary" type="submit">
+                        Reject
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {!pendingAgents.length ? <p className="text-sm text-[#68756f]">No pending agent requests.</p> : null}
+          </div>
+        </section>
+
         <section className="panel p-5">
           <h2 className="text-xl font-bold">Users</h2>
           <p className="mt-1 text-sm text-[#68756f]">Approve pending logins and decide whether each user is admin, agent, or client.</p>

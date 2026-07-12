@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-function callbackUrl() {
+function callbackUrl(requestedRole?: "agent" | "client") {
   const url = new URL("/auth/callback", window.location.origin);
   const next = new URLSearchParams(window.location.search).get("next");
   if (next) url.searchParams.set("next", next);
+  if (requestedRole === "agent") url.searchParams.set("requested_role", "agent");
   return url.toString();
 }
 
@@ -19,6 +20,8 @@ export function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"sign-in" | "create-account">("sign-in");
+  const [fullName, setFullName] = useState("");
+  const [accountType, setAccountType] = useState<"agent" | "client">("agent");
   const [busy, setBusy] = useState(false);
 
   function getSupabase() {
@@ -34,11 +37,12 @@ export function LoginForm() {
     setMessage("Opening Google sign in...");
     const supabase = getSupabase();
     if (!supabase) return;
+    const requestedRole = mode === "create-account" ? accountType : undefined;
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: callbackUrl(),
+        redirectTo: callbackUrl(requestedRole),
       },
     });
     if (error) setMessage(error.message);
@@ -80,7 +84,11 @@ export function LoginForm() {
       email: cleanEmail,
       password,
       options: {
-        emailRedirectTo: callbackUrl(),
+        emailRedirectTo: callbackUrl(accountType),
+        data: {
+          full_name: fullName.trim() || cleanEmail,
+          requested_role: accountType,
+        },
       },
     });
     setBusy(false);
@@ -136,6 +144,31 @@ export function LoginForm() {
       </div>
 
       <form onSubmit={submitPasswordLogin} className="grid gap-3">
+        {mode === "create-account" ? (
+          <>
+            <label className="field">
+              <span className="label">Full Name</span>
+              <input
+                className="input"
+                type="text"
+                placeholder="Name shown to admin"
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span className="label">Account Type</span>
+              <select
+                className="input"
+                value={accountType}
+                onChange={(event) => setAccountType(event.target.value === "client" ? "client" : "agent")}
+              >
+                <option value="agent">Agent - request approval to manage clients</option>
+                <option value="client">Client - update my own planning data</option>
+              </select>
+            </label>
+          </>
+        ) : null}
         <label className="field">
           <span className="label">Email / User ID</span>
           <input

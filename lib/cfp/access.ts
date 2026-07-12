@@ -26,14 +26,22 @@ function normalizeEmail(email?: string | null) {
   return String(email || "").trim().toLowerCase();
 }
 
-function activeRoleFor(email: string, existing?: UserProfile | null): Pick<UserProfile, "role" | "status"> {
-  if (normalizeEmail(email) === firstAdminEmail) return { role: "admin", status: "active" };
-  if (existing) return { role: existing.role, status: existing.status };
-  return { role: "client", status: "pending" };
+function requestedRoleFor(user: { user_metadata?: Record<string, unknown> } | null | undefined): "agent" | "client" {
+  return user?.user_metadata?.requested_role === "agent" ? "agent" : "client";
 }
 
-function fallbackProfile(user: { id: string; email: string }, fullName?: string | null): UserProfile {
-  const seed = activeRoleFor(user.email);
+function activeRoleFor(
+  email: string,
+  existing?: UserProfile | null,
+  requestedRole: "agent" | "client" = "client",
+): Pick<UserProfile, "role" | "status"> {
+  if (normalizeEmail(email) === firstAdminEmail) return { role: "admin", status: "active" };
+  if (existing) return { role: existing.role, status: existing.status };
+  return { role: requestedRole, status: "pending" };
+}
+
+function fallbackProfile(user: { id: string; email: string }, fullName?: string | null, requestedRole: "agent" | "client" = "client"): UserProfile {
+  const seed = activeRoleFor(user.email, null, requestedRole);
   return {
     id: user.id,
     email: user.email,
@@ -74,11 +82,23 @@ export async function getCurrentAccess(): Promise<AccessContext | null> {
   const supabase = await createCfpServerClient();
   const userIdentity = { id: user.id, email };
   const fullName = user.user_metadata?.full_name || user.user_metadata?.name || email;
-  if (!supabase) return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName));
+  const requestedRole = requestedRoleFor(user);
+  if (!supabase) return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName, requestedRole));
 
   try {
+    const { data: requestedProfile, error: requestError } = await supabase
+      .rpc("cfp_request_user_profile", {
+        requested_role: requestedRole,
+        requested_full_name: fullName,
+      })
+      .single();
+
+    if (!requestError && requestedProfile) {
+      return accessFromProfile(userIdentity, requestedProfile as UserProfile);
+    }
+
     const { data: existing } = await supabase.from("user_profiles").select("*").eq("id", user.id).maybeSingle();
-    const profileSeed = activeRoleFor(email, existing as UserProfile | null);
+    const profileSeed = activeRoleFor(email, existing as UserProfile | null, requestedRole);
 
     const payload = {
       id: user.id,
@@ -94,13 +114,13 @@ export async function getCurrentAccess(): Promise<AccessContext | null> {
       .select("*")
       .single();
     if (error) {
-      return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName));
+      return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName, requestedRole));
     }
 
     const typedProfile = profile as UserProfile;
     return accessFromProfile(userIdentity, typedProfile);
   } catch {
-    return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName));
+    return accessFromProfile(userIdentity, fallbackProfile(userIdentity, fullName, requestedRole));
   }
 }
 

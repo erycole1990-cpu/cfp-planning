@@ -49,16 +49,21 @@ function yearsUntil(targetDate: string) {
   return Math.max(0, Math.round(years * 10) / 10);
 }
 
-function calculatorHref(goal: {
+function calculatorHref(customerId: string, goal: {
+  id: string;
   goal_name: string;
   target_amount: number | string;
   current_amount: number | string;
   target_date: string;
 }) {
+  const returnTo = `/customers/${customerId}#goal-${goal.id}`;
   const params = new URLSearchParams({
+    customerId,
+    goalId: goal.id,
     goalName: goal.goal_name,
     todayCost: String(goal.target_amount),
     currentSavings: String(goal.current_amount),
+    returnTo,
     years: String(yearsUntil(goal.target_date)),
   });
   return `/calculator?${params.toString()}`;
@@ -421,6 +426,8 @@ export default async function CustomerDetailPage({
         <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
           {query.saved === "pending"
             ? "Submitted for advisor review. Official planning numbers will update after approval."
+            : query.saved === "goal-number"
+              ? "Calculated goal number saved to the customer portfolio."
             : "Saved. The database and dashboard are updated."}
         </div>
       ) : null}
@@ -863,7 +870,7 @@ export default async function CustomerDetailPage({
                                 Move Down
                               </button>
                             </form>
-                            <Link className="btn" href={calculatorHref(goal)}>
+                            <Link className="btn" href={calculatorHref(customer.id, goal)}>
                               Calculate Number
                             </Link>
                           </div>
@@ -922,7 +929,7 @@ export default async function CustomerDetailPage({
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2 lg:justify-end">
-                        <Link className="btn btn-secondary" href={calculatorHref(goal)}>
+                        <Link className="btn btn-secondary" href={calculatorHref(customer.id, goal)}>
                           Calculate Number
                         </Link>
                         <Link className="btn btn-secondary" href={`/customers/${customer.id}/goals/${goal.id}`}>

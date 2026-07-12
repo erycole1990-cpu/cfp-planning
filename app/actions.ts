@@ -487,6 +487,71 @@ export async function createGoal(formData: FormData) {
   redirect(`/customers/${customerId}?saved=goal`);
 }
 
+export async function applyCalculatedGoalNumber(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (access.isClient) throw new Error("Calculated goal numbers need advisor review before becoming official.");
+  const goalId = requiredText(formData, "goal_id");
+  const targetAmount = numberValue(formData, "target_amount");
+
+  const { data: goal, error: goalError } = await supabase
+    .from("financial_goals")
+    .select("*")
+    .eq("id", goalId)
+    .eq("customer_id", customerId)
+    .single();
+  if (goalError) throw new Error(goalError.message);
+
+  const onTrackStatus = calculateOnTrackStatus({
+    currentAmount: Number(goal.current_amount),
+    targetAmount,
+    createdAt: goal.created_at,
+    targetDate: goal.target_date,
+  });
+
+  const { error } = await supabase
+    .from("financial_goals")
+    .update({
+      target_amount: targetAmount,
+      on_track_status: onTrackStatus,
+    })
+    .eq("id", goalId)
+    .eq("customer_id", customerId);
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor: access.profile.full_name || access.user.email,
+    action: "goal_target_calculated",
+    entityType: "financial_goals",
+    entityId: goalId,
+    payload: {
+      previous_target_amount: goal.target_amount,
+      target_amount: targetAmount,
+      previous_on_track_status: goal.on_track_status,
+      on_track_status: onTrackStatus,
+      calculation: {
+        today_cost: numberValue(formData, "today_cost"),
+        years_to_goal: numberValue(formData, "years_to_goal"),
+        inflation_rate: numberValue(formData, "inflation_rate"),
+        expected_return: numberValue(formData, "expected_return"),
+        current_savings_today: numberValue(formData, "current_savings_today"),
+        projected_current_savings: numberValue(formData, "projected_current_savings"),
+        projected_gap: numberValue(formData, "projected_gap"),
+        required_payment: numberValue(formData, "required_payment"),
+        annual_contribution: numberValue(formData, "annual_contribution"),
+        contribution_frequency: text(formData, "contribution_frequency"),
+        contribution_timing: text(formData, "contribution_timing"),
+      },
+    },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/customers/${customerId}`);
+  revalidatePath(`/customers/${customerId}/goals/${goalId}`);
+  redirect(`/customers/${customerId}?saved=goal-number#goal-${goalId}`);
+}
+
 export async function logProgress(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");

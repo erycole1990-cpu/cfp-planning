@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
+import { applyCalculatedGoalNumber } from "@/app/actions";
 import { formatCurrency } from "@/lib/cfp/format";
 import { FundingSourcesEditor, defaultFundingSources, fundingSourcesAmount, fundingSourcesTotal } from "./funding-sources";
 
@@ -102,9 +104,12 @@ function solvePeriods(input: {
 }
 
 type InitialGoal = {
+  customerId?: string;
+  goalId?: string;
   goalName?: string;
   todayCost?: string;
   currentSavings?: string;
+  returnTo?: string;
   years?: string;
 };
 
@@ -227,9 +232,40 @@ function GoalNumberCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
           <ResultRow label="Required contribution" value={`${money(result.requiredPayment)} per period`} strong />
           <ResultRow label="Annual contribution equivalent" value={money(result.annualContribution)} />
         </div>
-        <div className="mt-5 rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-4 text-sm text-[#405047]">
-          Use <span className="font-bold">{money(result.futureGoal)}</span> as the target amount when creating the customer&apos;s financial goal.
-        </div>
+        {initialGoal?.customerId && initialGoal.goalId ? (
+          <form action={applyCalculatedGoalNumber} className="mt-5 rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-4 text-sm text-[#405047]">
+            <input type="hidden" name="customer_id" value={initialGoal.customerId} />
+            <input type="hidden" name="goal_id" value={initialGoal.goalId} />
+            <input type="hidden" name="target_amount" value={result.futureGoal.toFixed(2)} />
+            <input type="hidden" name="today_cost" value={numberValue(todayCost).toFixed(2)} />
+            <input type="hidden" name="years_to_goal" value={numberValue(years).toFixed(2)} />
+            <input type="hidden" name="inflation_rate" value={numberValue(inflationRate).toFixed(2)} />
+            <input type="hidden" name="expected_return" value={numberValue(expectedReturn).toFixed(2)} />
+            <input type="hidden" name="current_savings_today" value={result.currentSavings.toFixed(2)} />
+            <input type="hidden" name="projected_current_savings" value={result.futureCurrentSavings.toFixed(2)} />
+            <input type="hidden" name="projected_gap" value={result.gap.toFixed(2)} />
+            <input type="hidden" name="required_payment" value={result.requiredPayment.toFixed(2)} />
+            <input type="hidden" name="annual_contribution" value={result.annualContribution.toFixed(2)} />
+            <input type="hidden" name="contribution_frequency" value={frequency} />
+            <input type="hidden" name="contribution_timing" value={mode} />
+            <p>
+              Save <span className="font-bold">{money(result.futureGoal)}</span> back to this goal as the official target amount. The current
+              saved amount stays unchanged because it represents the client&apos;s real position today.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button className="btn" type="submit">
+                Save to Customer Portfolio
+              </button>
+              <Link className="btn btn-secondary" href={initialGoal.returnTo || `/customers/${initialGoal.customerId}#goal-${initialGoal.goalId}`}>
+                Back to Portfolio
+              </Link>
+            </div>
+          </form>
+        ) : (
+          <div className="mt-5 rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-4 text-sm text-[#405047]">
+            Use <span className="font-bold">{money(result.futureGoal)}</span> as the target amount when creating the customer&apos;s financial goal.
+          </div>
+        )}
       </div>
     </section>
   );

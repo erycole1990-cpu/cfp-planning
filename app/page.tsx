@@ -27,6 +27,8 @@ export default async function Home({
   const statusFilter = params.status || "all";
   const goals =
     statusFilter === "all" ? data.goals : data.goals.filter((goal) => goal.on_track_status === statusFilter);
+  const customerIdsWithGoals = new Set(data.goals.map((goal) => goal.customer_id));
+  const customersNeedingGoals = data.customers.filter((customer) => !customerIdsWithGoals.has(customer.id));
 
   return (
     <AppShell>
@@ -67,14 +69,56 @@ export default async function Home({
         <div className="space-y-6">
           <section className="grid gap-4 md:grid-cols-4">
             <StatCard label="Customers" value={data.customers.length} detail="Active planning records" />
+            <StatCard label="Need setup" value={customersNeedingGoals.length} detail="Customers without goals" />
             <StatCard
               label="Off-track goals"
               value={data.goals.filter((goal) => goal.on_track_status === "off_track").length}
               detail="Sorted to the top below"
             />
             <StatCard label="Open actions" value={openActions.length} detail="Advisor follow-ups" />
-            <StatCard label="Due this week" value={openActions.filter((action) => isDueThisWeek(action.due_date)).length} />
           </section>
+
+          {statusFilter === "all" && customersNeedingGoals.length ? (
+            <section className="panel">
+              <div className="border-b border-[#dce2dc] p-4">
+                <h2 className="text-xl font-bold">Needs goal setup</h2>
+                <p className="mt-1 text-sm text-[#68756f]">New customers stay here until their first planning goal is added.</p>
+              </div>
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Advisor</th>
+                      <th>Risk</th>
+                      <th>Created</th>
+                      <th>Next step</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customersNeedingGoals.map((customer) => (
+                      <tr key={customer.id}>
+                        <td>
+                          <Link className="font-bold text-[#0f766e]" href={`/customers/${customer.id}`}>
+                            {customer.full_name}
+                          </Link>
+                          <p className="mt-1 text-sm text-[#68756f]">{customer.email || "No email"}</p>
+                        </td>
+                        <td>{customer.assigned_advisor_name || "Not assigned"}</td>
+                        <td>{customer.risk_profile || "Not set"}</td>
+                        <td>{formatDate(customer.created_at)}</td>
+                        <td>
+                          <Link className="btn btn-secondary" href={`/customers/${customer.id}`}>
+                            Add First Goal
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
 
           <section className="panel">
             <div className="border-b border-[#dce2dc] p-4">

@@ -55,7 +55,7 @@ async function writeAudit(input: {
     entity_id: input.entityId,
     payload: input.payload,
   });
-  if (error) throw new Error(error.message);
+  if (error) console.error("Audit log write failed:", error.message);
 }
 
 export type CustomerFormState = {
@@ -167,20 +167,21 @@ export async function createCustomer(formData: FormData) {
     notes: text(formData, "notes"),
   };
 
-  const { data, error } = await supabase.from("customers").insert(payload).select("id").single();
+  const { data, error } = await supabase.rpc("cfp_create_customer", { customer_payload: payload });
   if (error) throw new Error(error.message);
+  const customerId = String(data);
 
   await writeAudit({
     actor: payload.assigned_advisor_name,
     action: "customer_created",
     entityType: "customers",
-    entityId: data.id,
+    entityId: customerId,
     payload,
   });
 
   revalidatePath("/");
   revalidatePath("/customers");
-  redirect(`/customers/${data.id}?saved=customer`);
+  redirect(`/customers/${customerId}?saved=customer`);
 }
 
 export async function createCustomerFromIntake(_state: CustomerFormState, formData: FormData): Promise<CustomerFormState> {

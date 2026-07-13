@@ -3,7 +3,8 @@ import { AppShell, EmptyState, ErrorNotice, PageHeader } from "@/app/ui";
 import { requireCurrentAccess } from "@/lib/cfp/access";
 import { createCfpServerClient } from "@/lib/cfp/supabase";
 import { formatDate } from "@/lib/cfp/format";
-import { reassignCustomer, reviewClientSubmission, syncAuthUserProfile, transferAgentPortfolio, updateUserAccess } from "../actions";
+import { assignmentEmailDetail } from "@/lib/cfp/audit";
+import { reassignCustomer, resendCustomerAssignmentEmail, reviewClientSubmission, syncAuthUserProfile, transferAgentPortfolio, updateUserAccess } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ type CustomerRow = {
   email: string | null;
   assigned_agent_user_id: string | null;
   assigned_advisor_name: string | null;
+  service_status: string | null;
 };
 
 type SubmissionRow = {
@@ -83,7 +85,7 @@ export default async function AdminAccessPage({
 
   const [profilesResult, customersResult, submissionsResult, assignmentLogsResult] = await Promise.all([
     supabase.from("user_profiles").select("*").order("created_at", { ascending: false }),
-    supabase.from("customers").select("id, full_name, email, assigned_agent_user_id, assigned_advisor_name").order("full_name"),
+    supabase.from("customers").select("id, full_name, email, service_status, assigned_agent_user_id, assigned_advisor_name").order("full_name"),
     supabase
       .from("pending_client_submissions")
       .select("*, customer:customers(full_name)")
@@ -131,6 +133,12 @@ export default async function AdminAccessPage({
               ? "This agent has no active clients to transfer."
         : query.saved === "synced"
           ? "Login profile synced."
+          : query.saved === "notice-resent"
+            ? query.email === "sent"
+              ? "Assignment notice sent to the agent."
+              : query.email === "failed"
+                ? "The notice could not be sent. Open the Audit Log for the plain-language reason."
+                : "The notice was recorded, but email delivery is not configured."
           : query.saved === "submission"
             ? "Client submission reviewed."
             : query.saved
@@ -145,6 +153,7 @@ export default async function AdminAccessPage({
         actions={
           <div className="flex gap-2">
             <Link className="btn btn-secondary" href="/admin/audit">Audit Log</Link>
+            <Link className="btn btn-secondary" href="/admin/operations">Operations</Link>
             <Link className="btn btn-secondary" href="/">Dashboard</Link>
           </div>
         }
@@ -319,6 +328,7 @@ export default async function AdminAccessPage({
                 <tr>
                   <th>Client</th>
                   <th>Assigned agent</th>
+                  <th>Service status</th>
                   <th>Reason</th>
                   <th></th>
                 </tr>
@@ -346,13 +356,20 @@ export default async function AdminAccessPage({
                       </form>
                       <p className="mt-1 text-sm text-[#68756f]">Current: {customer.assigned_advisor_name || "Unassigned"}</p>
                     </td>
+                    <td className="capitalize">{String(customer.service_status || "active").replaceAll("_", " ")}</td>
                     <td>
                       <input className="input" name="reason" form={`assign-${customer.id}`} required placeholder="Capacity, client preference, resignation..." />
                     </td>
                     <td>
-                      <button className="btn btn-secondary" type="submit" form={`assign-${customer.id}`}>
-                        Reassign
-                      </button>
+                      <div className="grid gap-2">
+                        <button className="btn btn-secondary" type="submit" form={`assign-${customer.id}`}>Reassign</button>
+                        {customer.assigned_agent_user_id ? (
+                          <form action={resendCustomerAssignmentEmail}>
+                            <input type="hidden" name="customer_id" value={customer.id} />
+                            <button className="btn btn-secondary w-full" type="submit">Resend Notice</button>
+                          </form>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -401,7 +418,7 @@ export default async function AdminAccessPage({
                 </thead>
                 <tbody>
                   {assignmentLogs.map((log) => {
-                    const notification = log.payload?.email_notification?.status || "not sent";
+                    const notification = assignmentEmailDetail(log.payload?.email_notification);
                     return (
                       <tr key={log.id}>
                         <td>
@@ -419,7 +436,7 @@ export default async function AdminAccessPage({
                         <td>
                           <p>{(log.actor && profileNameByEmail.get(log.actor.toLowerCase())) || log.actor || "Admin"}</p>
                           <p className="mt-1 text-sm text-[#68756f]">
-                            Email: {notification}
+                            {notification.value}
                             {log.payload?.agent_email ? ` to ${log.payload.agent_email}` : ""}
                           </p>
                         </td>

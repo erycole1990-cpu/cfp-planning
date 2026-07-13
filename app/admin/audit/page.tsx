@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AppShell, EmptyState, ErrorNotice, PageHeader } from "@/app/ui";
 import { requireCurrentAccess } from "@/lib/cfp/access";
+import { auditActionLabel, auditDetails, auditEntityLabel } from "@/lib/cfp/audit";
 import { formatDate } from "@/lib/cfp/format";
 import { createCfpServerClient } from "@/lib/cfp/supabase";
 
@@ -41,7 +42,7 @@ export default async function AuditPage({ searchParams }: { searchParams?: Promi
       <section className="panel p-5">
         <form className="grid gap-3 md:grid-cols-[1fr_0.8fr_auto_auto]" method="get">
           <label className="field"><span className="label">Search</span><input className="input" name="q" defaultValue={query.q || ""} placeholder="Person, client, action, record ID..." /></label>
-          <label className="field"><span className="label">Action</span><select className="input" name="action" defaultValue={action}><option value="">All actions</option>{actions.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}</select></label>
+          <label className="field"><span className="label">Action</span><select className="input" name="action" defaultValue={action}><option value="">All actions</option>{actions.map((item) => <option key={item} value={item}>{auditActionLabel(item)}</option>)}</select></label>
           <button className="btn self-end" type="submit">Search</button>
           <Link className="btn btn-secondary self-end" href="/admin/audit">Clear</Link>
         </form>
@@ -49,7 +50,37 @@ export default async function AuditPage({ searchParams }: { searchParams?: Promi
           <table className="data-table">
             <thead><tr><th>Date</th><th>Person</th><th>Action</th><th>Record</th><th>Details</th></tr></thead>
             <tbody>
-              {rows.map((row) => <tr key={row.id}><td>{formatDate(row.created_at)}</td><td>{row.actor || "System"}</td><td className="font-semibold">{row.action.replaceAll("_", " ")}</td><td><p>{row.entity_type}</p><p className="mt-1 text-xs text-[#68756f]">{row.entity_id || "Multiple records"}</p></td><td><pre className="max-h-28 max-w-xl overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(row.payload || {}, null, 2)}</pre></td></tr>)}
+              {rows.map((row) => {
+                const details = auditDetails(row.action, row.payload);
+                return (
+                  <tr key={row.id}>
+                    <td>{formatDate(row.created_at)}</td>
+                    <td>{row.actor || "System"}</td>
+                    <td className="font-semibold">{auditActionLabel(row.action)}</td>
+                    <td>
+                      <p>{auditEntityLabel(row.entity_type)}</p>
+                      <details className="mt-1 text-xs text-[#68756f]">
+                        <summary className="cursor-pointer">Record reference</summary>
+                        <p className="mt-1 break-all">{row.entity_id || "Multiple records"}</p>
+                      </details>
+                    </td>
+                    <td>
+                      <dl className="grid min-w-64 gap-2 text-sm">
+                        {details.map((detail, index) => (
+                          <div key={`${detail.label}-${index}`}>
+                            <dt className="text-xs font-bold uppercase text-[#68756f]">{detail.label}</dt>
+                            <dd className={detail.tone === "danger" ? "font-semibold text-red-700" : detail.tone === "warning" ? "font-semibold text-amber-800" : detail.tone === "success" ? "font-semibold text-emerald-800" : ""}>{detail.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                      <details className="mt-3 text-xs text-[#68756f]">
+                        <summary className="cursor-pointer font-semibold">Technical details</summary>
+                        <pre className="mt-2 max-h-36 max-w-xl overflow-auto whitespace-pre-wrap rounded-md bg-[#f5f7f4] p-2">{JSON.stringify(row.payload || {}, null, 2)}</pre>
+                      </details>
+                    </td>
+                  </tr>
+                );
+              })}
               {!rows.length ? <tr><td colSpan={5}>No audit entries match these filters.</td></tr> : null}
             </tbody>
           </table>

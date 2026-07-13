@@ -19,6 +19,12 @@ export type DashboardData = {
   error?: string;
 };
 
+const inactiveServiceStatuses = new Set(["inactive", "ended", "no longer servicing", "no_longer_servicing"]);
+
+function isInactiveCustomer(customer: Pick<Customer, "service_status">) {
+  return inactiveServiceStatuses.has(String(customer.service_status || "").trim().toLowerCase());
+}
+
 export async function getDashboardData(): Promise<DashboardData> {
   const access = await requireCurrentAccess();
   const supabase = await createCfpServerClient();
@@ -31,7 +37,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   let actionsResult;
   try {
     [customersResult, goalsResult, actionsResult] = await Promise.all([
-      supabase.from("customers").select("*").or("service_status.is.null,service_status.eq.active").order("created_at", { ascending: true }),
+      supabase.from("customers").select("*").order("created_at", { ascending: true }),
       supabase
         .from("financial_goals")
         .select("*, customer:customers(id, full_name, assigned_advisor_name)")
@@ -52,7 +58,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     return { configured: true, customers: [], goals: [], actions: [], latestLogsByGoal: {}, error: error.message };
   }
 
-  const customers = filterCustomersForAccess(access, (customersResult.data ?? []) as Customer[]);
+  const customers = filterCustomersForAccess(access, (customersResult.data ?? []) as Customer[]).filter((customer) => !isInactiveCustomer(customer));
   const activeCustomerIds = new Set(customers.map((customer) => customer.id));
   const goals = ((goalsResult.data ?? []) as DashboardData["goals"]).filter((goal) => activeCustomerIds.has(goal.customer_id)).sort((a, b) => {
     const statusDelta = statusRank(a.on_track_status) - statusRank(b.on_track_status);
@@ -89,13 +95,7 @@ export async function getCustomersData(filter: CustomerServiceFilter = "active")
   const supabase = await createCfpServerClient();
   if (!supabase) return { configured: false, customers: [], goals: [] as FinancialGoal[] };
 
-  let customersQuery = supabase.from("customers").select("*").order("full_name");
-  if (filter === "active") {
-    customersQuery = customersQuery.or("service_status.is.null,service_status.eq.active");
-  }
-  if (filter === "inactive") {
-    customersQuery = customersQuery.eq("service_status", "inactive");
-  }
+  const customersQuery = supabase.from("customers").select("*").order("full_name");
 
   let customersResult;
   let goalsResult;
@@ -108,7 +108,11 @@ export async function getCustomersData(filter: CustomerServiceFilter = "active")
     const message = error instanceof Error ? error.message : "Customer data could not load.";
     return { configured: true, customers: [], goals: [] as FinancialGoal[], error: message };
   }
-  const customers = filterCustomersForAccess(access, (customersResult.data ?? []) as Customer[]);
+  const accessibleCustomers = filterCustomersForAccess(access, (customersResult.data ?? []) as Customer[]);
+  const customers = accessibleCustomers.filter((customer) => {
+    if (filter === "all") return true;
+    return filter === "inactive" ? isInactiveCustomer(customer) : !isInactiveCustomer(customer);
+  });
   const activeCustomerIds = new Set(customers.map((customer) => customer.id));
 
   return {

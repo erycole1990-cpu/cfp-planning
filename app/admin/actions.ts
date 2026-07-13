@@ -106,7 +106,7 @@ export async function reassignCustomer(formData: FormData) {
 
   const { data: customer, error: customerError } = await supabase
     .from("customers")
-    .select("id, full_name, email, assigned_agent_user_id, assigned_advisor_name")
+    .select("id, full_name, email, service_status, assigned_agent_user_id, assigned_advisor_name")
     .eq("id", customerId)
     .single();
   if (customerError) throw new Error(customerError.message);
@@ -128,8 +128,14 @@ export async function reassignCustomer(formData: FormData) {
     assigned_advisor_name: agent.full_name || "Advisor",
   };
 
-  const { error } = await supabase.from("customers").update(payload).eq("id", customerId);
+  const { data: updatedCustomer, error } = await supabase
+    .from("customers")
+    .update(payload)
+    .eq("id", customerId)
+    .select("id, service_status, assigned_agent_user_id, assigned_advisor_name")
+    .single();
   if (error) throw new Error(error.message);
+  if (updatedCustomer.assigned_agent_user_id !== agentId) throw new Error("The ownership change was not saved. Please try again.");
 
   const emailNotification = await sendAgentAssignmentEmail({
     to: agent?.email ?? null,
@@ -153,14 +159,70 @@ export async function reassignCustomer(formData: FormData) {
       agent_email: agent?.email ?? null,
       ...payload,
       reason,
+      service_status: updatedCustomer.service_status,
       email_notification: emailNotification,
     },
   });
 
   revalidatePath("/");
   revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
   revalidatePath("/admin/access");
   redirect(`/admin/access?saved=reassigned&email=${emailNotification.status}`);
+}
+
+export async function resendCustomerAssignmentEmail(formData: FormData) {
+  const access = await requireAdmin();
+  const supabase = await requireSupabase();
+  const customerId = String(formData.get("customer_id") || "");
+  if (!customerId) throw new Error("Customer is required.");
+
+  const { data: customer, error: customerError } = await supabase
+    .from("customers")
+    .select("id, full_name, email, assigned_agent_user_id, assigned_advisor_name")
+    .eq("id", customerId)
+    .single();
+  if (customerError) throw new Error(customerError.message);
+  if (!customer.assigned_agent_user_id) throw new Error("Assign this customer to an agent before sending a notice.");
+
+  const { data: agent, error: agentError } = await supabase
+    .from("user_profiles")
+    .select("id,email,full_name")
+    .eq("id", customer.assigned_agent_user_id)
+    .eq("role", "agent")
+    .eq("status", "active")
+    .single();
+  if (agentError || !agent) throw new Error("The assigned agent is not active.");
+
+  const reason = "Reminder of the current client assignment";
+  const emailNotification = await sendAgentAssignmentEmail({
+    to: agent.email,
+    agentName: agent.full_name || "Advisor",
+    customerName: customer.full_name,
+    adminName: accessDisplayName(access),
+    reason,
+  });
+
+  await supabase.from("audit_logs").insert({
+    user_id: access.user.id,
+    actor: accessDisplayName(access),
+    action: "customer_assignment_notification_resent",
+    entity_type: "customers",
+    entity_id: customer.id,
+    payload: {
+      customer_name: customer.full_name,
+      customer_email: customer.email,
+      assigned_agent_user_id: agent.id,
+      assigned_advisor_name: agent.full_name || customer.assigned_advisor_name || "Advisor",
+      agent_email: agent.email,
+      reason,
+      email_notification: emailNotification,
+    },
+  });
+
+  revalidatePath("/admin/access");
+  revalidatePath("/admin/audit");
+  redirect(`/admin/access?saved=notice-resent&email=${emailNotification.status}`);
 }
 
 export async function transferAgentPortfolio(formData: FormData) {

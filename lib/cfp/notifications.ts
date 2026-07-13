@@ -4,7 +4,7 @@ type AssignmentEmailInput = {
   to?: string | null;
   agentName: string;
   customerName: string;
-  adminEmail?: string | null;
+  adminName: string;
   reason: string;
 };
 
@@ -37,7 +37,7 @@ export async function sendAgentAssignmentEmail(input: AssignmentEmailInput): Pro
           `Hi ${input.agentName},`,
           "",
           `${input.customerName} has been reassigned to you in CFP Planning.`,
-          `Reassigned by: ${input.adminEmail || "Admin"}`,
+          `Reassigned by: ${input.adminName}`,
           `Reason: ${input.reason}`,
           "",
           "Please review the client profile and next actions in the CFP Planning app.",

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireCurrentAccess } from "@/lib/cfp/access";
+import { accessDisplayName, requireCurrentAccess } from "@/lib/cfp/access";
 import { sendAgentAssignmentEmail } from "@/lib/cfp/notifications";
 import { createCfpServerClient } from "@/lib/cfp/supabase";
 
@@ -36,7 +36,7 @@ export async function updateUserAccess(formData: FormData) {
   if (error) throw new Error(error.message);
 
   await supabase.from("audit_logs").insert({
-    actor: access.user.email,
+    actor: accessDisplayName(access),
     action: "user_access_updated",
     entity_type: "user_profiles",
     entity_id: userId,
@@ -69,7 +69,7 @@ export async function syncAuthUserProfile(formData: FormData) {
   if (error) throw new Error(error.message);
 
   await supabase.from("audit_logs").insert({
-    actor: access.user.email,
+    actor: accessDisplayName(access),
     action: "user_profile_synced",
     entity_type: "user_profiles",
     entity_id: typeof profile === "object" && profile && "id" in profile ? String(profile.id) : null,
@@ -112,12 +112,12 @@ export async function reassignCustomer(formData: FormData) {
     to: agent?.email ?? null,
     agentName: agent ? agent.full_name || agent.email || "Agent" : "Agent",
     customerName: customer.full_name,
-    adminEmail: access.user.email,
+    adminName: accessDisplayName(access),
     reason,
   });
 
   await supabase.from("audit_logs").insert({
-    actor: access.user.email,
+    actor: accessDisplayName(access),
     action: "customer_reassigned",
     entity_type: "customers",
     entity_id: customerId,
@@ -174,7 +174,7 @@ export async function reviewClientSubmission(formData: FormData) {
   if (error) throw new Error(error.message);
 
   await supabase.from("audit_logs").insert({
-    actor: access.user.email,
+    actor: accessDisplayName(access),
     action: `client_submission_${decision}`,
     entity_type: "pending_client_submissions",
     entity_id: submissionId,

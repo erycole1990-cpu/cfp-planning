@@ -20,6 +20,14 @@ export type AccessContext = {
   isClient: boolean;
 };
 
+export function accessDisplayName(access: AccessContext) {
+  const profileName = String(access.profile.full_name || "").trim();
+  if (profileName && normalizeEmail(profileName) !== access.user.email) return profileName;
+  if (access.isAdmin) return "Administrator";
+  if (access.isAgent) return "Advisor";
+  return "Client";
+}
+
 const firstAdminEmail = "raycole_nkg1990@hotmail.com";
 
 function normalizeEmail(email?: string | null) {

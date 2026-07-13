@@ -171,7 +171,7 @@ export function AddCustomerForm({
       {isAgent ? (
         <div className="rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-4 md:col-span-2">
           <p className="label">Assigned advisor</p>
-          <p className="font-bold">Assigned to {currentUserName}</p>
+          <p className="font-bold">{currentUserName}</p>
         </div>
       ) : null}
       <label className="field md:col-span-2">

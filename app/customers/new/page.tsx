@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AppShell, EmptyState, PageHeader } from "@/app/ui";
-import { requireCurrentAccess } from "@/lib/cfp/access";
+import { accessDisplayName, requireCurrentAccess } from "@/lib/cfp/access";
 import { createCfpServerClient } from "@/lib/cfp/supabase";
 import { AddCustomerForm } from "./add-customer-form";
 
@@ -47,7 +47,7 @@ export default async function NewCustomerPage() {
         <AddCustomerForm
           activeAgents={activeAgents}
           agentLoadError={agentLoadError}
-          currentUserName={access.profile.full_name || access.user.email}
+          currentUserName={accessDisplayName(access)}
           isAdmin={access.isAdmin}
           isAgent={access.isAgent}
         />

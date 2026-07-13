@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { calculateOnTrackStatus } from "@/lib/cfp/status";
 import { createCfpServerClient, type Customer } from "@/lib/cfp/supabase";
-import { canAccessCustomer, getCurrentAccess, requireCurrentAccess } from "@/lib/cfp/access";
+import { accessDisplayName, canAccessCustomer, getCurrentAccess, requireCurrentAccess } from "@/lib/cfp/access";
 import { createClient as createSessionSupabaseClient } from "@/lib/supabase/server";
 
 async function requireSupabase() {
@@ -145,7 +145,7 @@ export async function createCustomer(formData: FormData) {
   if (!access.isAdmin && !access.isAgent) throw new Error("Only admins and agents can add customers.");
   const supabase = await requireSupabase();
   let assignedAgentUserId = access.user.id;
-  let assignedAdvisorName = access.profile.full_name || access.user.email;
+  let assignedAdvisorName = accessDisplayName(access);
 
   if (access.isAdmin) {
     const selectedAgentId = text(formData, "assigned_agent_user_id");
@@ -192,7 +192,7 @@ export async function createCustomer(formData: FormData) {
   const customerId = String(data);
 
   await writeAudit({
-    actor: access.profile.full_name || access.user.email,
+    actor: accessDisplayName(access),
     action: "customer_created",
     entityType: "customers",
     entityId: customerId,
@@ -243,7 +243,7 @@ export async function updateCustomer(formData: FormData) {
   if (error) throw new Error(error.message);
 
   await writeAudit({
-    actor: access.profile.full_name || access.user.email,
+    actor: accessDisplayName(access),
     action: "customer_updated",
     entityType: "customers",
     entityId: customerId,
@@ -540,7 +540,7 @@ export async function applyCalculatedGoalNumber(formData: FormData) {
   if (error) throw new Error(error.message);
 
   await writeAudit({
-    actor: access.profile.full_name || access.user.email,
+    actor: accessDisplayName(access),
     action: "goal_target_calculated",
     entityType: "financial_goals",
     entityId: goalId,
@@ -578,7 +578,7 @@ export async function logProgress(formData: FormData) {
   if (access.isClient) throw new Error("Progress updates need advisor review before becoming official.");
   const goalId = requiredText(formData, "goal_id");
   const loggedAmount = numberValue(formData, "logged_amount");
-  const loggedBy = access.profile.full_name || access.user.email;
+  const loggedBy = accessDisplayName(access);
 
   const { data: goal, error: goalError } = await supabase
     .from("financial_goals")

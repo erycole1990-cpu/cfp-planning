@@ -14,7 +14,7 @@ import {
 import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge, StatusBadge } from "@/app/ui";
 import { dateTimeValue, formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
 import { getCustomerDetail } from "@/lib/cfp/data";
-import { requireCurrentAccess } from "@/lib/cfp/access";
+import { accessDisplayName, requireCurrentAccess } from "@/lib/cfp/access";
 import { AddGoalForm } from "./add-goal-form";
 import { StatementImporter } from "./statement-importer";
 import { RiskProfileField } from "@/app/customers/risk-profile-field";
@@ -401,7 +401,7 @@ export default async function CustomerDetailPage({
   const monthlyCosts = sumStatement(statementItems, "profit_loss", ["cost", "expense"], true);
   const monthlyProfit = monthlyRevenue - monthlyCosts;
   const showProfitLossSummary = isBusinessPlanningRelevant(customer) || profitLossItems.length > 0;
-  const actor = access.profile.full_name || access.user.email;
+  const actor = accessDisplayName(access);
 
   return (
     <AppShell>

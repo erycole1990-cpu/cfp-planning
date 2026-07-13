@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { statusLabel } from "@/lib/cfp/status";
-import { getCurrentAccess } from "@/lib/cfp/access";
+import { accessDisplayName, getCurrentAccess } from "@/lib/cfp/access";
 import { signOut } from "@/app/login/actions";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
@@ -36,7 +36,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             {access ? (
               <form action={signOut} className="flex items-center gap-2">
                 <span className="hidden text-xs font-semibold text-[#68756f] md:inline">
-                  {access.profile.role} · {access.user.email}
+                  {access.profile.role} · {accessDisplayName(access)}
                 </span>
                 <button className="btn btn-secondary" type="submit">
                   Sign Out

@@ -55,3 +55,41 @@ export async function sendAgentAssignmentEmail(input: AssignmentEmailInput): Pro
     return { status: "failed", message: error instanceof Error ? error.message : "Email request failed." };
   }
 }
+
+export async function sendAgentPortfolioTransferEmail(input: {
+  to?: string | null;
+  agentName: string;
+  customerCount: number;
+  adminName: string;
+  reason: string;
+}): Promise<AssignmentEmailResult> {
+  if (!input.to) return { status: "skipped", message: "Agent has no email address." };
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.NOTIFICATION_FROM_EMAIL;
+  if (!apiKey || !from) return { status: "not_configured", message: "Email provider is not configured." };
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to: input.to,
+        subject: `${input.customerCount} clients transferred to you`,
+        text: [
+          `Hi ${input.agentName},`,
+          "",
+          `${input.customerCount} client portfolios have been transferred to you in CFP Planning.`,
+          `Transferred by: ${input.adminName}`,
+          `Reason: ${input.reason}`,
+          "",
+          "Please review the transferred clients and their open actions.",
+        ].join("\n"),
+      }),
+    });
+    if (!response.ok) return { status: "failed", message: (await response.text()).slice(0, 300) || response.statusText };
+    return { status: "sent" };
+  } catch (error) {
+    return { status: "failed", message: error instanceof Error ? error.message : "Email request failed." };
+  }
+}

@@ -3,7 +3,7 @@ import { AppShell, EmptyState, ErrorNotice, PageHeader } from "@/app/ui";
 import { requireCurrentAccess } from "@/lib/cfp/access";
 import { createCfpServerClient } from "@/lib/cfp/supabase";
 import { formatDate } from "@/lib/cfp/format";
-import { reassignCustomer, reviewClientSubmission, syncAuthUserProfile, updateUserAccess } from "../actions";
+import { reassignCustomer, reviewClientSubmission, syncAuthUserProfile, transferAgentPortfolio, updateUserAccess } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +13,11 @@ type Profile = {
   full_name: string | null;
   role: string;
   status: string;
+  phone: string | null;
+  job_title: string | null;
+  agency_name: string | null;
+  license_no: string | null;
+  branch_name: string | null;
 };
 
 type CustomerRow = {
@@ -54,7 +59,7 @@ type AssignmentLogRow = {
 export default async function AdminAccessPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ saved?: string; email?: string }>;
+  searchParams?: Promise<{ saved?: string; email?: string; error?: string; count?: string }>;
 }) {
   const access = await requireCurrentAccess();
   const query = (await searchParams) ?? {};
@@ -91,6 +96,8 @@ export default async function AdminAccessPage({
       .order("created_at", { ascending: false })
       .limit(25),
   ]);
+  const mfaResult = await supabase.auth.mfa.listFactors();
+  const adminMfaActive = (mfaResult.data?.totp || []).some((factor) => factor.status === "verified");
 
   const profiles = (profilesResult.data ?? []) as Profile[];
   const agents = profiles.filter((profile) => profile.role === "agent" && profile.status === "active");
@@ -98,6 +105,11 @@ export default async function AdminAccessPage({
   const customers = (customersResult.data ?? []) as CustomerRow[];
   const submissions = (submissionsResult.data ?? []) as SubmissionRow[];
   const assignmentLogs = (assignmentLogsResult.data ?? []) as AssignmentLogRow[];
+  const clientCountByAgent = new Map<string, number>();
+  const profileNameByEmail = new Map(profiles.map((profile) => [profile.email.toLowerCase(), profile.full_name]));
+  for (const customer of customers) {
+    if (customer.assigned_agent_user_id) clientCountByAgent.set(customer.assigned_agent_user_id, (clientCountByAgent.get(customer.assigned_agent_user_id) || 0) + 1);
+  }
   const error =
     profilesResult.error?.message || customersResult.error?.message || submissionsResult.error?.message || assignmentLogsResult.error?.message;
   const savedMessage =
@@ -111,6 +123,12 @@ export default async function AdminAccessPage({
             : "Client reassigned successfully."
       : query.saved === "user"
         ? "User access saved."
+        : query.saved === "assignment-unchanged"
+          ? "No assignment changed because this client already belongs to the selected agent."
+          : query.saved === "portfolio-transferred"
+            ? `${query.count || "0"} client portfolio(s) transferred successfully.`
+            : query.saved === "no-clients"
+              ? "This agent has no active clients to transfer."
         : query.saved === "synced"
           ? "Login profile synced."
           : query.saved === "submission"
@@ -125,15 +143,23 @@ export default async function AdminAccessPage({
         eyebrow="Admin control"
         title="Access and Reviews"
         actions={
-          <Link className="btn btn-secondary" href="/">
-            Dashboard
-          </Link>
+          <div className="flex gap-2">
+            <Link className="btn btn-secondary" href="/admin/audit">Audit Log</Link>
+            <Link className="btn btn-secondary" href="/">Dashboard</Link>
+          </div>
         }
       />
       <ErrorNotice message={error} />
+      <ErrorNotice message={query.error} />
       {savedMessage ? (
         <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
           {savedMessage}
+        </div>
+      ) : null}
+      {!adminMfaActive ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+          <span>Admin multi-factor authentication is not active yet. Set it up before storing real client data.</span>
+          <Link className="btn btn-secondary" href="/profile">Set Up MFA</Link>
         </div>
       ) : null}
 
@@ -246,6 +272,10 @@ export default async function AdminAccessPage({
                         <input type="hidden" name="user_id" value={profile.id} />
                         <input className="input" name="full_name" defaultValue={profile.full_name || ""} />
                       </form>
+                      <p className="mt-1 text-xs text-[#68756f]">
+                        {[profile.job_title, profile.agency_name, profile.branch_name].filter(Boolean).join(" | ") || "Professional profile not completed"}
+                      </p>
+                      {profile.license_no ? <p className="mt-1 text-xs text-[#68756f]">Licence: {profile.license_no}</p> : null}
                     </td>
                     <td>
                       <select className="input" name="role" form={`user-${profile.id}`} defaultValue={profile.role}>
@@ -305,11 +335,11 @@ export default async function AdminAccessPage({
                     <td>
                       <form id={`assign-${customer.id}`} action={reassignCustomer}>
                         <input type="hidden" name="customer_id" value={customer.id} />
-                        <select className="input" name="assigned_agent_user_id" defaultValue={customer.assigned_agent_user_id || ""}>
-                          <option value="">Unassigned</option>
+                        <select className="input" name="assigned_agent_user_id" required defaultValue={customer.assigned_agent_user_id || ""}>
+                          <option value="" disabled>Choose active agent</option>
                           {agents.map((agent) => (
                             <option key={agent.id} value={agent.id}>
-                              {agent.full_name || agent.email}
+                              {agent.full_name || "Advisor"}
                             </option>
                           ))}
                         </select>
@@ -328,6 +358,17 @@ export default async function AdminAccessPage({
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-6 rounded-md border border-[#dce2dc] p-4">
+            <h3 className="text-lg font-bold">Agent departure and portfolio transfer</h3>
+            <p className="mt-1 text-sm text-[#68756f]">Transfer all active clients before making an agent inactive. The receiving agent gets one summary email and every client change is audited.</p>
+            <form action={transferAgentPortfolio} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1.4fr_auto]">
+              <label className="field"><span className="label">From agent</span><select className="input" name="source_agent_user_id" required defaultValue=""><option value="" disabled>Choose current agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.full_name || "Advisor"} ({clientCountByAgent.get(agent.id) || 0} clients)</option>)}</select></label>
+              <label className="field"><span className="label">To agent</span><select className="input" name="target_agent_user_id" required defaultValue=""><option value="" disabled>Choose receiving agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.full_name || "Advisor"}</option>)}</select></label>
+              <label className="field"><span className="label">Reason</span><input className="input" name="reason" required placeholder="Resignation, capacity, client preference..." /></label>
+              <button className="btn self-end" type="submit">Transfer Portfolio</button>
+            </form>
           </div>
 
           <div className="mt-6">
@@ -350,7 +391,7 @@ export default async function AdminAccessPage({
                     <th>Client</th>
                     <th>From / To</th>
                     <th>Reason</th>
-                    <th>Admin / Email</th>
+                    <th>Admin / Notification</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -371,7 +412,7 @@ export default async function AdminAccessPage({
                         </td>
                         <td>{log.payload?.reason || "No reason recorded"}</td>
                         <td>
-                          <p>{log.actor || "Admin"}</p>
+                          <p>{(log.actor && profileNameByEmail.get(log.actor.toLowerCase())) || log.actor || "Admin"}</p>
                           <p className="mt-1 text-sm text-[#68756f]">
                             Email: {notification}
                             {log.payload?.agent_email ? ` to ${log.payload.agent_email}` : ""}
@@ -403,7 +444,7 @@ export default async function AdminAccessPage({
                   <div>
                     <p className="font-bold">{submission.customer?.full_name || "Customer"}</p>
                     <p className="text-sm text-[#68756f]">
-                      {submission.submission_type} · client submitted · {formatDate(submission.created_at)}
+                      {submission.submission_type} | client submitted | {formatDate(submission.created_at)}
                     </p>
                     <pre className="mt-3 max-h-48 overflow-auto rounded-md bg-[#f5f7f4] p-3 text-xs">
                       {JSON.stringify(submission.payload, null, 2)}

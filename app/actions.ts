@@ -49,6 +49,7 @@ async function writeAudit(input: {
 }) {
   const supabase = await requireSupabase();
   const { error } = await supabase.from("audit_logs").insert({
+    user_id: (await getCurrentAccess())?.user.id || null,
     actor: input.actor || "system",
     action: input.action,
     entity_type: input.entityType,
@@ -59,6 +60,10 @@ async function writeAudit(input: {
 }
 
 export type CustomerFormState = {
+  error: string | null;
+};
+
+export type GoalFormState = {
   error: string | null;
 };
 
@@ -469,10 +474,25 @@ export async function createGoal(formData: FormData) {
     throw new Error("Target date must be today or later.");
   }
 
+  const goalName = requiredText(formData, "goal_name");
+  const { data: activeGoals, error: activeGoalsError } = await supabase
+    .from("financial_goals")
+    .select("id,goal_name")
+    .eq("customer_id", customerId)
+    .eq("status", "active");
+  if (activeGoalsError) throw new Error(activeGoalsError.message);
+  const normalizedGoalName = goalName.trim().replace(/\s+/g, " ").toLowerCase();
+  const duplicate = (activeGoals || []).find(
+    (goal) => String(goal.goal_name || "").trim().replace(/\s+/g, " ").toLowerCase() === normalizedGoalName,
+  );
+  if (duplicate) {
+    throw new Error(`An active goal named "${goalName}" already exists. Use a more specific name or archive the existing goal first.`);
+  }
+
   const payload = {
     customer_id: customerId,
     goal_type: requiredText(formData, "goal_type"),
-    goal_name: requiredText(formData, "goal_name"),
+    goal_name: goalName,
     target_amount: numberValue(formData, "target_amount"),
     current_amount: numberValue(formData, "current_amount"),
     target_date: targetDate,
@@ -504,6 +524,48 @@ export async function createGoal(formData: FormData) {
   revalidatePath("/");
   revalidatePath(`/customers/${customerId}`);
   redirect(`/customers/${customerId}?saved=goal`);
+}
+
+export async function createGoalFromForm(_previousState: GoalFormState, formData: FormData): Promise<GoalFormState> {
+  try {
+    await createGoal(formData);
+    return { error: null };
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    return { error: error instanceof Error ? error.message : "Goal could not be saved." };
+  }
+}
+
+export async function archiveGoal(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (access.isClient) throw new Error("Only an admin or advisor can archive a goal.");
+  const goalId = requiredText(formData, "goal_id");
+
+  const { data: goal, error: goalError } = await supabase
+    .from("financial_goals")
+    .select("id,goal_name,status")
+    .eq("id", goalId)
+    .eq("customer_id", customerId)
+    .single();
+  if (goalError) throw new Error(goalError.message);
+  if (goal.status !== "active") redirect(`/customers/${customerId}`);
+
+  const { error } = await supabase.from("financial_goals").update({ status: "paused" }).eq("id", goalId);
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: "goal_archived",
+    entityType: "financial_goals",
+    entityId: goalId,
+    payload: { customer_id: customerId, goal_name: goal.goal_name },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/customers/${customerId}?saved=goal-archived`);
 }
 
 export async function applyCalculatedGoalNumber(formData: FormData) {

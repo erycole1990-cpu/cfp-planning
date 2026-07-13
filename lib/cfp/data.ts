@@ -36,6 +36,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       supabase
         .from("financial_goals")
         .select("*, customer:customers(id, full_name, assigned_advisor_name)")
+        .eq("status", "active")
         .order("target_date", { ascending: true }),
       supabase
         .from("next_step_actions")
@@ -98,7 +99,7 @@ export async function getCustomersData(filter: CustomerServiceFilter = "active")
   try {
     [customersResult, goalsResult] = await Promise.all([
       customersQuery,
-      supabase.from("financial_goals").select("*"),
+      supabase.from("financial_goals").select("*").eq("status", "active"),
     ]);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Customer data could not load.";
@@ -127,7 +128,7 @@ export async function getCustomerDetail(id: string) {
   }
 
   const [goalsResult, logsResult, actionsResult, statementsResult] = await Promise.all([
-    supabase.from("financial_goals").select("*").eq("customer_id", id).order("target_date"),
+    supabase.from("financial_goals").select("*").eq("customer_id", id).eq("status", "active").order("target_date"),
     supabase
       .from("goal_progress_logs")
       .select("*")

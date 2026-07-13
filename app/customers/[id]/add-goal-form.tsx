@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { createGoal } from "@/app/actions";
+import { useActionState, useMemo, useState } from "react";
+import { createGoalFromForm, type GoalFormState } from "@/app/actions";
 import { formatCurrency } from "@/lib/cfp/format";
 import { FundingSourcesEditor, defaultFundingSources, fundingSourcesAmount, fundingSourcesTotal } from "@/app/calculator/funding-sources";
 
@@ -53,6 +53,7 @@ export function AddGoalForm({
   actor: string;
   today: string;
 }) {
+  const [formState, formAction, pending] = useActionState(createGoalFromForm, { error: null } as GoalFormState);
   const [targetAmount, setTargetAmount] = useState("");
   const [currentAmount, setCurrentAmount] = useState("0");
   const [todayCost, setTodayCost] = useState("30000");
@@ -75,7 +76,8 @@ export function AddGoalForm({
   }, [fundingSources, inflationRate, newMoneyReturn, todayCost, years]);
 
   return (
-    <form action={createGoal} className="mt-4 grid gap-3 sm:grid-cols-2">
+    <form action={formAction} className="mt-4 grid gap-3 sm:grid-cols-2">
+      {formState.error ? <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800 sm:col-span-2">{formState.error}</div> : null}
       <input type="hidden" name="customer_id" value={customerId} />
       <input type="hidden" name="actor" value={actor} />
       <label className="field">
@@ -194,8 +196,8 @@ export function AddGoalForm({
         <span className="label">Target date</span>
         <input className="input" name="target_date" required min={today} type="date" />
       </label>
-      <button className="btn self-end" type="submit">
-        Add Goal
+      <button className="btn self-end" type="submit" disabled={pending}>
+        {pending ? "Adding..." : "Add Goal"}
       </button>
     </form>
   );

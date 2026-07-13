@@ -9,6 +9,14 @@ export type UserProfile = {
   full_name: string | null;
   role: UserRole;
   status: "active" | "pending" | "inactive";
+  phone: string | null;
+  job_title: string | null;
+  agency_name: string | null;
+  agency_registration_no: string | null;
+  license_no: string | null;
+  branch_name: string | null;
+  bio: string | null;
+  updated_at: string;
   created_at: string;
 };
 
@@ -56,6 +64,14 @@ function fallbackProfile(user: { id: string; email: string }, fullName?: string 
     full_name: fullName || user.email,
     role: seed.role,
     status: seed.status,
+    phone: null,
+    job_title: null,
+    agency_name: null,
+    agency_registration_no: null,
+    license_no: null,
+    branch_name: null,
+    bio: null,
+    updated_at: new Date().toISOString(),
     created_at: new Date().toISOString(),
   };
 }
@@ -132,9 +148,18 @@ export async function getCurrentAccess(): Promise<AccessContext | null> {
   }
 }
 
-export async function requireCurrentAccess() {
+export async function requireCurrentAccess(options?: { skipAdminMfa?: boolean }) {
   const access = await getCurrentAccess();
   if (!access) redirect("/login");
+
+  if (access.isAdmin && !options?.skipAdminMfa) {
+    const auth = await createAuthClient();
+    const { data } = await auth.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (data?.nextLevel === "aal2" && data.currentLevel !== "aal2") {
+      redirect("/account/mfa");
+    }
+  }
+
   return access;
 }
 

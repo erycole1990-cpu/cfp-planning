@@ -35,9 +35,9 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             ) : null}
             {access ? (
               <form action={signOut} className="flex items-center gap-2">
-                <span className="hidden text-xs font-semibold text-[#68756f] md:inline">
-                  {access.profile.role} · {accessDisplayName(access)}
-                </span>
+                <Link className="hidden text-xs font-semibold text-[#68756f] hover:text-[#0f766e] md:inline" href="/profile">
+                  {access.profile.role} | {accessDisplayName(access)}
+                </Link>
                 <button className="btn btn-secondary" type="submit">
                   Sign Out
                 </button>
@@ -83,8 +83,8 @@ export function EnvNotice() {
     <div className="panel p-5">
       <h2 className="text-xl font-bold">Connect Supabase to use the workspace</h2>
       <p className="mt-2 max-w-3xl text-[#53625b]">
-        This build expects `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and optionally
-        `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`. Once Vercel envs are pulled, the dashboard and forms
+        This build expects `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.local`.
+        Once Vercel envs are pulled, the dashboard and forms
         will read and write the existing migration tables.
       </p>
     </div>

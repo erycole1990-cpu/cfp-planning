@@ -151,7 +151,7 @@ export function AddCustomerForm({
               <option value="">Choose approved active agent</option>
               {activeAgents.map((agent) => (
                 <option key={agent.id} value={agent.id}>
-                  {agent.name} ({agent.email})
+                  {agent.name}
                 </option>
               ))}
             </select>

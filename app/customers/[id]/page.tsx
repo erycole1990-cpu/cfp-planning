@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   completeNextStepAction,
+  archiveGoal,
   createNextStepAction,
   createFinancialStatementItem,
   deleteFinancialStatementItem,
@@ -938,6 +939,11 @@ export default async function CustomerDetailPage({
                         <Link className="btn btn-secondary" href={`/customers/${customer.id}/goals/${goal.id}`}>
                           View History
                         </Link>
+                        <form action={archiveGoal}>
+                          <input type="hidden" name="customer_id" value={customer.id} />
+                          <input type="hidden" name="goal_id" value={goal.id} />
+                          <button className="btn btn-secondary" type="submit">Archive</button>
+                        </form>
                       </div>
                     </div>
 

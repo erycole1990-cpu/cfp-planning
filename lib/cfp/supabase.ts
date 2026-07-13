@@ -1,4 +1,3 @@
-import { createClient as createRawSupabaseClient } from "@supabase/supabase-js";
 import { createClient as createServerSupabaseClient } from "@/lib/supabase/server";
 
 export type Customer = {
@@ -84,29 +83,12 @@ export type FinancialStatementItem = {
 export function getSupabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !anonKey || url.includes("YOUR-PROJECT")) {
     return null;
   }
 
-  return { url, anonKey, serviceRoleKey };
-}
-
-export function createCfpClient() {
-  const config = getSupabaseConfig();
-  if (!config) return null;
-
-  try {
-    return createRawSupabaseClient(config.url, config.serviceRoleKey || config.anonKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
-  } catch {
-    return null;
-  }
+  return { url, anonKey };
 }
 
 export async function createCfpServerClient() {
@@ -116,6 +98,6 @@ export async function createCfpServerClient() {
   try {
     return await createServerSupabaseClient();
   } catch {
-    return createCfpClient();
+    return null;
   }
 }

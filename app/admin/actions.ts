@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { accessDisplayName, requireCurrentAccess } from "@/lib/cfp/access";
-import { sendAgentAssignmentEmail } from "@/lib/cfp/notifications";
+import { sendAgentAssignmentEmail, sendAgentPortfolioTransferEmail } from "@/lib/cfp/notifications";
 import { createCfpServerClient } from "@/lib/cfp/supabase";
 
 async function requireSupabase() {
@@ -32,10 +32,23 @@ export async function updateUserAccess(formData: FormData) {
   if (!["admin", "agent", "client"].includes(role)) throw new Error("Invalid role.");
   if (!["active", "pending", "inactive"].includes(status)) throw new Error("Invalid status.");
 
+  const { data: currentProfile } = await supabase.from("user_profiles").select("role,status").eq("id", userId).single();
+  if (currentProfile?.role === "agent" && (role !== "agent" || status !== "active")) {
+    const { count } = await supabase
+      .from("customers")
+      .select("id", { count: "exact", head: true })
+      .eq("assigned_agent_user_id", userId)
+      .or("service_status.is.null,service_status.eq.active");
+    if ((count || 0) > 0) {
+      redirect(`/admin/access?error=${encodeURIComponent(`Transfer this agent's ${count} active client(s) before changing their role or status.`)}`);
+    }
+  }
+
   const { error } = await supabase.from("user_profiles").update({ role, status, full_name: text(formData, "full_name") }).eq("id", userId);
   if (error) throw new Error(error.message);
 
   await supabase.from("audit_logs").insert({
+    user_id: access.user.id,
     actor: accessDisplayName(access),
     action: "user_access_updated",
     entity_type: "user_profiles",
@@ -69,6 +82,7 @@ export async function syncAuthUserProfile(formData: FormData) {
   if (error) throw new Error(error.message);
 
   await supabase.from("audit_logs").insert({
+    user_id: access.user.id,
     actor: accessDisplayName(access),
     action: "user_profile_synced",
     entity_type: "user_profiles",
@@ -87,6 +101,7 @@ export async function reassignCustomer(formData: FormData) {
   const agentId = text(formData, "assigned_agent_user_id");
   const reason = text(formData, "reason");
   if (!customerId) throw new Error("Customer is required.");
+  if (!agentId) throw new Error("Choose an active agent.");
   if (!reason) throw new Error("Reassignment reason is required.");
 
   const { data: customer, error: customerError } = await supabase
@@ -95,14 +110,22 @@ export async function reassignCustomer(formData: FormData) {
     .eq("id", customerId)
     .single();
   if (customerError) throw new Error(customerError.message);
+  if (customer.assigned_agent_user_id === agentId) {
+    redirect("/admin/access?saved=assignment-unchanged");
+  }
 
-  const { data: agent } = agentId
-    ? await supabase.from("user_profiles").select("*").eq("id", agentId).single()
-    : { data: null };
+  const { data: agent, error: agentError } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("id", agentId)
+    .eq("role", "agent")
+    .eq("status", "active")
+    .single();
+  if (agentError || !agent) throw new Error("The selected agent is not active.");
 
   const payload = {
     assigned_agent_user_id: agentId,
-    assigned_advisor_name: agent ? agent.full_name || agent.email || "Agent" : "Unassigned",
+    assigned_advisor_name: agent.full_name || "Advisor",
   };
 
   const { error } = await supabase.from("customers").update(payload).eq("id", customerId);
@@ -110,13 +133,14 @@ export async function reassignCustomer(formData: FormData) {
 
   const emailNotification = await sendAgentAssignmentEmail({
     to: agent?.email ?? null,
-    agentName: agent ? agent.full_name || agent.email || "Agent" : "Agent",
+    agentName: agent.full_name || "Advisor",
     customerName: customer.full_name,
     adminName: accessDisplayName(access),
     reason,
   });
 
   await supabase.from("audit_logs").insert({
+    user_id: access.user.id,
     actor: accessDisplayName(access),
     action: "customer_reassigned",
     entity_type: "customers",
@@ -137,6 +161,72 @@ export async function reassignCustomer(formData: FormData) {
   revalidatePath("/customers");
   revalidatePath("/admin/access");
   redirect(`/admin/access?saved=reassigned&email=${emailNotification.status}`);
+}
+
+export async function transferAgentPortfolio(formData: FormData) {
+  const access = await requireAdmin();
+  const supabase = await requireSupabase();
+  const sourceAgentId = String(formData.get("source_agent_user_id") || "");
+  const targetAgentId = String(formData.get("target_agent_user_id") || "");
+  const reason = text(formData, "reason");
+  if (!sourceAgentId || !targetAgentId || sourceAgentId === targetAgentId) throw new Error("Choose two different agents.");
+  if (!reason) throw new Error("Transfer reason is required.");
+
+  const [{ data: sourceAgent }, { data: targetAgent, error: targetError }] = await Promise.all([
+    supabase.from("user_profiles").select("id,email,full_name").eq("id", sourceAgentId).eq("role", "agent").single(),
+    supabase.from("user_profiles").select("id,email,full_name").eq("id", targetAgentId).eq("role", "agent").eq("status", "active").single(),
+  ]);
+  if (targetError || !targetAgent) throw new Error("Choose an approved active receiving agent.");
+
+  const { data: customers, error: customerError } = await supabase
+    .from("customers")
+    .select("id,full_name,email,assigned_advisor_name")
+    .eq("assigned_agent_user_id", sourceAgentId)
+    .or("service_status.is.null,service_status.eq.active");
+  if (customerError) throw new Error(customerError.message);
+  if (!customers?.length) redirect("/admin/access?saved=no-clients");
+
+  const targetName = targetAgent.full_name || "Advisor";
+  const { error: updateError } = await supabase
+    .from("customers")
+    .update({ assigned_agent_user_id: targetAgentId, assigned_advisor_name: targetName })
+    .in("id", customers.map((customer) => customer.id));
+  if (updateError) throw new Error(updateError.message);
+
+  const notification = await sendAgentPortfolioTransferEmail({
+    to: targetAgent.email,
+    agentName: targetName,
+    customerCount: customers.length,
+    adminName: accessDisplayName(access),
+    reason,
+  });
+
+  await supabase.from("audit_logs").insert(
+    customers.map((customer) => ({
+      user_id: access.user.id,
+      actor: accessDisplayName(access),
+      action: "customer_reassigned",
+      entity_type: "customers",
+      entity_id: customer.id,
+      payload: {
+        customer_name: customer.full_name,
+        customer_email: customer.email,
+        previous_agent_user_id: sourceAgentId,
+        previous_advisor_name: customer.assigned_advisor_name || sourceAgent?.full_name || "Unassigned",
+        assigned_agent_user_id: targetAgentId,
+        assigned_advisor_name: targetName,
+        agent_email: targetAgent.email,
+        reason,
+        bulk_transfer: true,
+        email_notification: notification,
+      },
+    })),
+  );
+
+  revalidatePath("/");
+  revalidatePath("/customers");
+  revalidatePath("/admin/access");
+  redirect(`/admin/access?saved=portfolio-transferred&count=${customers.length}&email=${notification.status}`);
 }
 
 export async function reviewClientSubmission(formData: FormData) {
@@ -174,6 +264,7 @@ export async function reviewClientSubmission(formData: FormData) {
   if (error) throw new Error(error.message);
 
   await supabase.from("audit_logs").insert({
+    user_id: access.user.id,
     actor: accessDisplayName(access),
     action: `client_submission_${decision}`,
     entity_type: "pending_client_submissions",

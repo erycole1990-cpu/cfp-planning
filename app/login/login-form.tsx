@@ -5,17 +5,22 @@ import { createClient } from "@/lib/supabase/client";
 
 function callbackUrl(requestedRole?: "agent" | "client") {
   const url = new URL("/auth/callback", window.location.origin);
-  const next = new URLSearchParams(window.location.search).get("next");
+  const next = safeNextPath(new URLSearchParams(window.location.search).get("next"));
   if (next) url.searchParams.set("next", next);
   if (requestedRole === "agent") url.searchParams.set("requested_role", "agent");
   return url.toString();
 }
 
 function nextPath() {
-  return new URLSearchParams(window.location.search).get("next") || "/";
+  return safeNextPath(new URLSearchParams(window.location.search).get("next"));
+}
+
+function safeNextPath(value: string | null) {
+  return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
 }
 
 export function LoginForm() {
+  const googleEnabled = process.env.NEXT_PUBLIC_GOOGLE_AUTH_ENABLED === "true";
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -124,6 +129,23 @@ export function LoginForm() {
     setMessage(error ? error.message : `Magic link sent to ${cleanEmail}. Open it in this browser to continue.`);
   }
 
+  async function sendPasswordReset() {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      setMessage("Enter your email first.");
+      return;
+    }
+    const supabase = getSupabase();
+    if (!supabase) return;
+    const redirectTo = new URL("/auth/callback", window.location.origin);
+    redirectTo.searchParams.set("next", "/account/password");
+    setBusy(true);
+    setMessage("Sending password reset email...");
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, { redirectTo: redirectTo.toString() });
+    setBusy(false);
+    setMessage(error ? error.message : `Password reset email sent to ${cleanEmail}.`);
+  }
+
   return (
     <div className="grid gap-4">
       <div className="grid grid-cols-2 gap-2">
@@ -195,13 +217,20 @@ export function LoginForm() {
         <button className="btn" type="submit" disabled={busy}>
           {mode === "sign-in" ? "Sign In with Password" : "Create Password Account"}
         </button>
+        {mode === "sign-in" ? (
+          <button className="text-left text-sm font-bold text-[#0f766e]" type="button" onClick={sendPasswordReset} disabled={busy}>
+            Forgot password?
+          </button>
+        ) : null}
       </form>
 
       <div className="relative text-center text-sm font-semibold text-[#68756f]">or</div>
 
-      <button className="btn btn-secondary" type="button" onClick={signInWithGoogle}>
-        Continue with Google
-      </button>
+      {googleEnabled ? (
+        <button className="btn btn-secondary" type="button" onClick={signInWithGoogle}>
+          Continue with Google
+        </button>
+      ) : null}
 
       <form onSubmit={sendMagicLink} className="grid gap-2">
         <button className="btn btn-secondary" type="submit">

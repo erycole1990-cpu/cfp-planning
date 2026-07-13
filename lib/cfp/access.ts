@@ -163,7 +163,15 @@ export async function requireCurrentAccess(options?: { skipAdminMfa?: boolean })
   return access;
 }
 
+export function isPersonalCustomer(
+  access: AccessContext,
+  customer: Pick<Customer, "client_user_id">,
+) {
+  return customer.client_user_id === access.user.id;
+}
+
 export function canAccessCustomer(access: AccessContext, customer: Pick<Customer, "assigned_agent_user_id" | "client_user_id" | "email">) {
+  if (isPersonalCustomer(access, customer)) return true;
   if (access.isAdmin) return true;
   if (access.isAgent) return customer.assigned_agent_user_id === access.user.id;
   if (access.isClient) {
@@ -177,4 +185,12 @@ export function filterCustomersForAccess<T extends Pick<Customer, "assigned_agen
   customers: T[],
 ) {
   return customers.filter((customer) => canAccessCustomer(access, customer));
+}
+
+export function filterOperationalCustomersForAccess<
+  T extends Pick<Customer, "assigned_agent_user_id" | "client_user_id" | "email">,
+>(access: AccessContext, customers: T[]) {
+  const accessible = filterCustomersForAccess(access, customers);
+  if (!access.isAdmin && !access.isAgent) return accessible;
+  return accessible.filter((customer) => !isPersonalCustomer(access, customer));
 }

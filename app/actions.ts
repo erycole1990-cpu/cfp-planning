@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { calculateOnTrackStatus } from "@/lib/cfp/status";
 import { createCfpServerClient, type Customer } from "@/lib/cfp/supabase";
-import { accessDisplayName, canAccessCustomer, getCurrentAccess, requireCurrentAccess } from "@/lib/cfp/access";
+import { accessDisplayName, canAccessCustomer, getCurrentAccess, isPersonalCustomer, requireCurrentAccess } from "@/lib/cfp/access";
 import { createClient as createSessionSupabaseClient } from "@/lib/supabase/server";
 
 async function requireSupabase() {
@@ -145,6 +145,13 @@ async function requireCustomerAccess(customerId: string) {
   return { access, customer };
 }
 
+function requiresIndependentReview(
+  access: Awaited<ReturnType<typeof requireCurrentAccess>>,
+  customer: Pick<Customer, "client_user_id">,
+) {
+  return access.isClient || isPersonalCustomer(access, customer);
+}
+
 export async function createCustomer(formData: FormData) {
   const access = await requireCurrentAccess();
   if (!access.isAdmin && !access.isAgent) throw new Error("Only admins and agents can add customers.");
@@ -222,7 +229,7 @@ export async function createCustomerFromIntake(_state: CustomerFormState, formDa
 export async function updateCustomer(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
+  const { access, customer } = await requireCustomerAccess(customerId);
   const payload = {
     full_name: requiredText(formData, "full_name"),
     email: text(formData, "email"),
@@ -323,7 +330,7 @@ export async function reactivateCustomerService(formData: FormData) {
 export async function createFinancialStatementItem(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
+  const { access, customer } = await requireCustomerAccess(customerId);
   const actor = requiredText(formData, "actor");
   const statementType = requiredText(formData, "statement_type");
   const itemType = requiredText(formData, "item_type");
@@ -343,7 +350,7 @@ export async function createFinancialStatementItem(formData: FormData) {
     statement_date: text(formData, "statement_date"),
   };
 
-  if (access.isClient) {
+  if (requiresIndependentReview(access, customer)) {
     const { error } = await supabase.from("pending_client_submissions").insert({
       customer_id: customerId,
       submitted_by_user_id: access.user.id,
@@ -373,8 +380,8 @@ export async function createFinancialStatementItem(formData: FormData) {
 export async function deleteFinancialStatementItem(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
-  if (access.isClient) throw new Error("Client-submitted official records need advisor review.");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if (requiresIndependentReview(access, customer)) throw new Error("Personal-plan official records need advisor review.");
   const itemId = requiredText(formData, "statement_item_id");
   const actor = requiredText(formData, "actor");
 
@@ -404,7 +411,7 @@ export async function deleteFinancialStatementItem(formData: FormData) {
 export async function importFinancialStatementItems(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
+  const { access, customer } = await requireCustomerAccess(customerId);
   const actor = requiredText(formData, "actor");
   const statementTypes = formData.getAll("statement_type").map(String);
   const itemTypes = formData.getAll("item_type").map(String);
@@ -436,7 +443,7 @@ export async function importFinancialStatementItems(formData: FormData) {
 
   if (!rows.length) throw new Error("No valid imported rows to save.");
 
-  if (access.isClient) {
+  if (requiresIndependentReview(access, customer)) {
     const { error } = await supabase.from("pending_client_submissions").insert({
       customer_id: customerId,
       submitted_by_user_id: access.user.id,
@@ -466,8 +473,8 @@ export async function importFinancialStatementItems(formData: FormData) {
 export async function createGoal(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
-  if (access.isClient) throw new Error("Goals need advisor review before becoming official.");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if (requiresIndependentReview(access, customer)) throw new Error("Goals need independent advisor review before becoming official.");
   const targetDate = requiredText(formData, "target_date");
   const targetDateValue = new Date(`${targetDate}T00:00:00`);
   if (targetDateValue < new Date(new Date().toDateString())) {
@@ -539,8 +546,8 @@ export async function createGoalFromForm(_previousState: GoalFormState, formData
 export async function archiveGoal(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
-  if (access.isClient) throw new Error("Only an admin or advisor can archive a goal.");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if (requiresIndependentReview(access, customer)) throw new Error("Only the assigned advisor or another admin can archive this goal.");
   const goalId = requiredText(formData, "goal_id");
 
   const { data: goal, error: goalError } = await supabase
@@ -571,8 +578,8 @@ export async function archiveGoal(formData: FormData) {
 export async function completeGoal(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
-  if (access.isClient) throw new Error("Only an admin or advisor can complete a goal.");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if (requiresIndependentReview(access, customer)) throw new Error("Only the assigned advisor or another admin can complete this goal.");
   const goalId = requiredText(formData, "goal_id");
 
   const { data: goal, error: goalError } = await supabase
@@ -603,8 +610,8 @@ export async function completeGoal(formData: FormData) {
 export async function restoreGoal(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
-  if (access.isClient) throw new Error("Only an admin or advisor can restore a goal.");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if (requiresIndependentReview(access, customer)) throw new Error("Only the assigned advisor or another admin can restore this goal.");
   const goalId = requiredText(formData, "goal_id");
 
   const { data: goal, error: goalError } = await supabase
@@ -649,8 +656,8 @@ export async function restoreGoal(formData: FormData) {
 export async function deleteEmptyGoal(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
-  if (access.isClient) throw new Error("Only an admin or advisor can delete a goal.");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if (requiresIndependentReview(access, customer)) throw new Error("Only the assigned advisor or another admin can delete this goal.");
   const goalId = requiredText(formData, "goal_id");
 
   const { data: goal, error: goalError } = await supabase
@@ -694,8 +701,8 @@ export async function deleteEmptyGoal(formData: FormData) {
 export async function applyCalculatedGoalNumber(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
-  if (access.isClient) throw new Error("Calculated goal numbers need advisor review before becoming official.");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if (requiresIndependentReview(access, customer)) throw new Error("Calculated goal numbers need independent advisor review before becoming official.");
   const goalId = requiredText(formData, "goal_id");
   const targetAmount = numberValue(formData, "target_amount");
 
@@ -759,8 +766,7 @@ export async function applyCalculatedGoalNumber(formData: FormData) {
 export async function logProgress(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
-  if (access.isClient) throw new Error("Progress updates need advisor review before becoming official.");
+  const { access, customer } = await requireCustomerAccess(customerId);
   const goalId = requiredText(formData, "goal_id");
   const loggedAmount = numberValue(formData, "logged_amount");
   const loggedBy = accessDisplayName(access);
@@ -771,6 +777,22 @@ export async function logProgress(formData: FormData) {
     .eq("id", goalId)
     .single();
   if (goalError) throw new Error(goalError.message);
+
+  if (requiresIndependentReview(access, customer)) {
+    const { error } = await supabase.from("pending_client_submissions").insert({
+      customer_id: customerId,
+      submitted_by_user_id: access.user.id,
+      submission_type: "goal_progress",
+      payload: {
+        goal_id: goalId,
+        logged_amount: loggedAmount,
+        notes: text(formData, "notes"),
+      },
+    });
+    if (error) throw new Error(error.message);
+    revalidatePath(`/customers/${customerId}`);
+    redirect(`/customers/${customerId}?saved=pending#goal-${goalId}`);
+  }
 
   const onTrackStatus = calculateOnTrackStatus({
     currentAmount: loggedAmount,
@@ -820,8 +842,8 @@ export async function logProgress(formData: FormData) {
 export async function createNextStepAction(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
-  if (access.isClient) throw new Error("Only advisors can create next-step actions.");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if (requiresIndependentReview(access, customer)) throw new Error("Only the assigned advisor or another admin can create next-step actions.");
   const goalId = text(formData, "goal_id");
   const payload = {
     customer_id: customerId,
@@ -853,8 +875,8 @@ export async function createNextStepAction(formData: FormData) {
 export async function updateGoalPriority(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
-  if (access.isClient) throw new Error("Goal priority changes need advisor review.");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if (requiresIndependentReview(access, customer)) throw new Error("Goal priority changes need independent advisor review.");
   const goalId = requiredText(formData, "goal_id");
   const priority = requiredText(formData, "priority");
   const actor = text(formData, "actor");
@@ -890,8 +912,8 @@ export async function completeNextStepAction(formData: FormData) {
   const supabase = await requireSupabase();
   const actionId = requiredText(formData, "action_id");
   const customerId = requiredText(formData, "customer_id");
-  const { access } = await requireCustomerAccess(customerId);
-  if (access.isClient) throw new Error("Only advisors can complete next-step actions.");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if (requiresIndependentReview(access, customer)) throw new Error("Only the assigned advisor or another admin can complete next-step actions.");
   const goalId = text(formData, "goal_id");
   const actor = requiredText(formData, "actor");
 

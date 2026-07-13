@@ -80,6 +80,19 @@ export type FinancialStatementItem = {
   statement_date: string | null;
 };
 
+export type PendingClientSubmission = {
+  id: string;
+  created_at: string;
+  customer_id: string;
+  submitted_by_user_id: string | null;
+  submission_type: string;
+  payload: Record<string, unknown>;
+  review_status: "pending" | "approved" | "rejected";
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+};
+
 export function getSupabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

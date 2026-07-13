@@ -14,12 +14,24 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             CFP Planning
           </Link>
           <nav className="flex items-center gap-2 text-sm font-semibold text-[#405047]">
-            <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/">
-              Dashboard
-            </Link>
-            <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/customers">
-              Customers
-            </Link>
+            {access?.isAdmin || access?.isAgent ? (
+              <>
+                <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/">
+                  Dashboard
+                </Link>
+                <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/customers">
+                  Customers
+                </Link>
+                <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/reviews">
+                  Reviews
+                </Link>
+              </>
+            ) : null}
+            {access?.profile.status === "active" ? (
+              <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/my-plan">
+                My Plan
+              </Link>
+            ) : null}
             <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/calculator">
               Calculator
             </Link>

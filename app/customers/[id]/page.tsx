@@ -14,7 +14,7 @@ import {
 import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge, StatusBadge } from "@/app/ui";
 import { dateTimeValue, formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
 import { getCustomerDetail } from "@/lib/cfp/data";
-import { accessDisplayName, requireCurrentAccess } from "@/lib/cfp/access";
+import { accessDisplayName, isPersonalCustomer, requireCurrentAccess } from "@/lib/cfp/access";
 import { AddGoalForm } from "./add-goal-form";
 import { StatementImporter } from "./statement-importer";
 import { RiskProfileField } from "@/app/customers/risk-profile-field";
@@ -153,6 +153,19 @@ function isBusinessPlanningRelevant(customer: { employment_status?: string | nul
   return employment.includes("self-employed") || employment.includes("business") || occupation.includes("business");
 }
 
+function submissionLabel(type: string) {
+  switch (type) {
+    case "financial_statement_item":
+      return "Financial statement entry";
+    case "financial_statement_import":
+      return "Statement import";
+    case "goal_progress":
+      return "Goal progress update";
+    default:
+      return "Planning update";
+  }
+}
+
 function StatementSection({
   title,
   summary,
@@ -165,6 +178,7 @@ function StatementSection({
   showFrequency = true,
   dateLabel,
   monthlySummary,
+  canDelete = true,
 }: {
   title: string;
   summary: string;
@@ -177,6 +191,7 @@ function StatementSection({
   showFrequency?: boolean;
   dateLabel?: string;
   monthlySummary?: Array<{ month: string; income: number; expenses: number; surplus: number }>;
+  canDelete?: boolean;
 }) {
   const showDate = Boolean(dateLabel);
   const tableColumnCount = showDate ? 7 : 6;
@@ -280,14 +295,16 @@ function StatementSection({
                 ) : null}
                 <td>{formatCurrency(showFrequency ? monthlyEquivalent(item) : item.amount)}</td>
                 <td>
-                  <form action={deleteFinancialStatementItem}>
-                    <input type="hidden" name="customer_id" value={customerId} />
-                    <input type="hidden" name="statement_item_id" value={item.id} />
-                    <input type="hidden" name="actor" value={actor} />
-                    <button className="btn btn-secondary" type="submit">
-                      Remove
-                    </button>
-                  </form>
+                  {canDelete ? (
+                    <form action={deleteFinancialStatementItem}>
+                      <input type="hidden" name="customer_id" value={customerId} />
+                      <input type="hidden" name="statement_item_id" value={item.id} />
+                      <input type="hidden" name="actor" value={actor} />
+                      <button className="btn btn-secondary" type="submit">
+                        Remove
+                      </button>
+                    </form>
+                  ) : null}
                 </td>
               </tr>
             ))}
@@ -355,6 +372,9 @@ export default async function CustomerDetailPage({
   if (data.configured && !data.customer && !data.error) notFound();
 
   const customer = data.customer;
+  const personalOwner = Boolean(customer && isPersonalCustomer(access, customer));
+  const submissionOnly = access.isClient || personalOwner;
+  const pendingSubmissions = (data.pendingSubmissions ?? []).filter((submission) => submission.review_status === "pending");
   const isInactiveCustomer = customer?.service_status === "inactive";
   const today = toDateInputValue(new Date());
   const actionsByGoal = new Map<string, NonNullable<typeof data.actions>>();
@@ -451,6 +471,28 @@ export default async function CustomerDetailPage({
           This customer is marked no longer servicing and is hidden from the active customer list.
         </div>
       ) : null}
+      {personalOwner ? (
+        <div className="mb-4 rounded-md border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
+          <p className="font-bold">This is your personal financial plan.</p>
+          <p className="mt-1">
+            Financial entries and progress updates are submitted to {customer?.assigned_advisor_name || "your assigned advisor"} for independent review.
+          </p>
+        </div>
+      ) : null}
+
+      {submissionOnly && pendingSubmissions.length ? (
+        <section className="mb-6 rounded-md border border-amber-200 bg-amber-50 p-4">
+          <h2 className="font-bold text-amber-950">Updates awaiting review</h2>
+          <div className="mt-3 divide-y divide-amber-200">
+            {pendingSubmissions.map((submission) => (
+              <div className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm" key={submission.id}>
+                <span className="font-semibold text-amber-950">{submissionLabel(submission.submission_type)}</span>
+                <span className="text-amber-800">Submitted {formatDate(submission.created_at)}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {data.configured && customer ? (
         <div className="space-y-6">
@@ -535,6 +577,8 @@ export default async function CustomerDetailPage({
                 </p>
               ) : null}
 
+              {!submissionOnly ? (
+                <>
               <details className="mt-5 rounded-md border border-[#dce2dc] p-4">
                 <summary className="cursor-pointer font-bold">Edit customer</summary>
                 <form action={updateCustomer} className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -689,13 +733,15 @@ export default async function CustomerDetailPage({
                   </form>
                 )}
               </details>
+                </>
+              ) : null}
             </div>
 
-            {access.isClient ? (
+            {submissionOnly ? (
               <div className="panel p-5">
-                <h2 className="text-xl font-bold">Client updates</h2>
+                <h2 className="text-xl font-bold">Personal plan updates</h2>
                 <p className="mt-2 text-sm text-[#68756f]">
-                  You can update profile and financial statement information. Goal and advice changes are reviewed by your advisor before becoming official.
+                  Add financial statement entries or log goal progress below. Your assigned advisor reviews each submission before official planning numbers change.
                 </p>
               </div>
             ) : (
@@ -743,6 +789,7 @@ export default async function CustomerDetailPage({
                 items={balanceSheetItems}
                 customerId={customer.id}
                 actor={actor}
+                canDelete={!submissionOnly}
                 showFrequency={false}
                 dateLabel="As-at date"
                 itemTypes={[
@@ -758,6 +805,7 @@ export default async function CustomerDetailPage({
                 items={cashFlowItems}
                 customerId={customer.id}
                 actor={actor}
+                canDelete={!submissionOnly}
                 dateLabel="Date / month"
                 monthlySummary={cashFlowMonthlySummary}
                 itemTypes={[
@@ -813,6 +861,7 @@ export default async function CustomerDetailPage({
                 items={profitLossItems}
                 customerId={customer.id}
                 actor={actor}
+                canDelete={!submissionOnly}
                 dateLabel="Date / month"
                 itemTypes={[
                   { value: "revenue", label: "Revenue" },
@@ -870,6 +919,8 @@ export default async function CustomerDetailPage({
                             </div>
                           </div>
                           <div className="flex flex-wrap items-start gap-2 lg:justify-end">
+                            {!submissionOnly ? (
+                              <>
                             <form action={updateGoalPriority}>
                               <input type="hidden" name="customer_id" value={customer.id} />
                               <input type="hidden" name="goal_id" value={goal.id} />
@@ -891,6 +942,8 @@ export default async function CustomerDetailPage({
                             <Link className="btn" href={calculatorHref(customer.id, goal)}>
                               Calculate Number
                             </Link>
+                              </>
+                            ) : null}
                             <Link className="btn btn-secondary" href={`?goal=${goal.id}#goal-${goal.id}`}>
                               Manage
                             </Link>
@@ -968,11 +1021,13 @@ export default async function CustomerDetailPage({
                         {latestLog?.notes || "No progress logged yet"}
                       </p>
                       <div className="flex flex-wrap gap-2">
-                        <Link className="btn btn-secondary" href={calculatorHref(customer.id, goal)}>
-                          Calculate Number
-                        </Link>
                         <Link className="btn btn-secondary" href={`/customers/${customer.id}/goals/${goal.id}`}>
                           View History
+                        </Link>
+                        {!submissionOnly ? (
+                          <>
+                        <Link className="btn btn-secondary" href={calculatorHref(customer.id, goal)}>
+                          Calculate Number
                         </Link>
                         <GoalLifecycleActions
                           customerId={customer.id}
@@ -981,10 +1036,12 @@ export default async function CustomerDetailPage({
                           status={goal.status}
                           canDelete={canDelete}
                         />
+                          </>
+                        ) : null}
                       </div>
                     </div>
 
-                    <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                    <div className={`mt-5 grid gap-4 ${submissionOnly ? "" : "lg:grid-cols-2"}`}>
                       <details className="rounded-md border border-[#dce2dc] p-4" open={goal.on_track_status === "off_track"}>
                         <summary className="cursor-pointer font-bold">Log Progress</summary>
                         <form action={logProgress} className="mt-4 grid gap-3">
@@ -1011,11 +1068,12 @@ export default async function CustomerDetailPage({
                             <textarea className="input min-h-24" name="notes" placeholder="What changed since the last review?" />
                           </label>
                           <button className="btn" type="submit">
-                            Save Progress
+                            {submissionOnly ? "Submit Progress for Review" : "Save Progress"}
                           </button>
                         </form>
                       </details>
 
+                      {!submissionOnly ? (
                       <details className="rounded-md border border-[#dce2dc] p-4" open={goal.on_track_status === "off_track"}>
                         <summary className="cursor-pointer font-bold">Add Next-Step Action</summary>
                         <form action={createNextStepAction} className="mt-4 grid gap-3">
@@ -1052,6 +1110,7 @@ export default async function CustomerDetailPage({
                           </button>
                         </form>
                       </details>
+                      ) : null}
                     </div>
 
                     <div className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -1066,6 +1125,7 @@ export default async function CustomerDetailPage({
                                   {action.assigned_to || "Unassigned"} · due {formatDate(action.due_date)}
                                 </p>
                               </div>
+                              {!submissionOnly ? (
                               <form action={completeNextStepAction}>
                                 <input type="hidden" name="action_id" value={action.id} />
                                 <input type="hidden" name="customer_id" value={customer.id} />
@@ -1075,6 +1135,7 @@ export default async function CustomerDetailPage({
                                   Complete
                                 </button>
                               </form>
+                              ) : null}
                             </div>
                           ))}
                           {!openGoalActions.length ? <p className="p-3 text-sm text-[#68756f]">No open actions for this goal.</p> : null}
@@ -1123,6 +1184,7 @@ export default async function CustomerDetailPage({
                             {goal.goal_type} - {formatCurrency(goal.current_amount)} of {formatCurrency(goal.target_amount)} - target {formatDate(goal.target_date)}
                           </p>
                         </div>
+                        {!submissionOnly ? (
                         <GoalLifecycleActions
                           customerId={customer.id}
                           goalId={goal.id}
@@ -1130,6 +1192,7 @@ export default async function CustomerDetailPage({
                           status={goal.status}
                           canDelete={canDelete}
                         />
+                        ) : null}
                       </div>
                     );
                   })}

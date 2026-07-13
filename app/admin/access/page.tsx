@@ -110,7 +110,10 @@ export default async function AdminAccessPage({
   const clientCountByAgent = new Map<string, number>();
   const profileNameByEmail = new Map(profiles.map((profile) => [profile.email.toLowerCase(), profile.full_name]));
   for (const customer of customers) {
-    if (customer.assigned_agent_user_id) clientCountByAgent.set(customer.assigned_agent_user_id, (clientCountByAgent.get(customer.assigned_agent_user_id) || 0) + 1);
+    const serviceStatus = String(customer.service_status || "active").trim().toLowerCase();
+    if (customer.assigned_agent_user_id && serviceStatus === "active") {
+      clientCountByAgent.set(customer.assigned_agent_user_id, (clientCountByAgent.get(customer.assigned_agent_user_id) || 0) + 1);
+    }
   }
   const error =
     profilesResult.error?.message || customersResult.error?.message || submissionsResult.error?.message || assignmentLogsResult.error?.message;
@@ -321,7 +324,9 @@ export default async function AdminAccessPage({
 
         <section className="panel p-5">
           <h2 className="text-xl font-bold">Client ownership</h2>
-          <p className="mt-1 text-sm text-[#68756f]">Each client should have one assigned agent. Reassignment requires a reason for audit history.</p>
+          <p className="mt-1 text-sm text-[#68756f]">
+            Each client has one current owner. Reassign changes ownership; resend email only retries the notice.
+          </p>
           <div className="mt-4 table-wrap rounded-md border border-[#dce2dc]">
             <table className="data-table">
               <thead>
@@ -366,7 +371,7 @@ export default async function AdminAccessPage({
                         {customer.assigned_agent_user_id ? (
                           <form action={resendCustomerAssignmentEmail}>
                             <input type="hidden" name="customer_id" value={customer.id} />
-                            <button className="btn btn-secondary w-full" type="submit">Resend Notice</button>
+                            <button className="btn btn-secondary w-full" type="submit">Resend Email Only</button>
                           </form>
                         ) : null}
                       </div>
@@ -379,9 +384,12 @@ export default async function AdminAccessPage({
 
           <div className="mt-6 rounded-md border border-[#dce2dc] p-4">
             <h3 className="text-lg font-bold">Agent departure and portfolio transfer</h3>
-            <p className="mt-1 text-sm text-[#68756f]">Transfer all active clients before making an agent inactive. The receiving agent gets one summary email and every client change is audited.</p>
+            <p className="mt-1 text-sm text-[#68756f]">
+              Transfers active clients only. Inactive and no-longer-servicing records remain with their current owner unless you reassign them individually above.
+              The receiving agent gets one summary email and every ownership change is audited.
+            </p>
             <form action={transferAgentPortfolio} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1.4fr_auto]">
-              <label className="field"><span className="label">From agent</span><select className="input" name="source_agent_user_id" required defaultValue=""><option value="" disabled>Choose current agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.full_name || "Advisor"} ({clientCountByAgent.get(agent.id) || 0} clients)</option>)}</select></label>
+              <label className="field"><span className="label">From agent</span><select className="input" name="source_agent_user_id" required defaultValue=""><option value="" disabled>Choose current agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.full_name || "Advisor"} ({clientCountByAgent.get(agent.id) || 0} active clients)</option>)}</select></label>
               <label className="field"><span className="label">To agent</span><select className="input" name="target_agent_user_id" required defaultValue=""><option value="" disabled>Choose receiving agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.full_name || "Advisor"}</option>)}</select></label>
               <label className="field"><span className="label">Reason</span><input className="input" name="reason" required placeholder="Resignation, capacity, client preference..." /></label>
               <button className="btn self-end" type="submit">Transfer Portfolio</button>

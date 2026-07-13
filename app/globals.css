@@ -88,6 +88,16 @@ textarea {
   background: #eef3ef;
 }
 
+.btn-danger {
+  background: #fff;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.btn-danger:hover {
+  background: #fef2f2;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);

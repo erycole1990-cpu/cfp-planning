@@ -94,7 +94,7 @@ export default async function AdminAccessPage({
       .select("id, created_at, actor, entity_id, payload")
       .eq("action", "customer_reassigned")
       .order("created_at", { ascending: false })
-      .limit(25),
+      .limit(5),
   ]);
   const mfaResult = await supabase.auth.mfa.listFactors();
   const adminMfaActive = (mfaResult.data?.totp || []).some((factor) => factor.status === "verified");
@@ -374,14 +374,19 @@ export default async function AdminAccessPage({
           <div className="mt-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-lg font-bold">Assignment history</h3>
+                <h3 className="text-lg font-bold">Latest assignment changes</h3>
                 <p className="mt-1 text-sm text-[#68756f]">
-                  Recent client ownership changes for admin handover and accountability.
+                  The latest five ownership changes are shown here. The complete audit history is retained for accountability.
                 </p>
               </div>
-              <span className="rounded-full border border-[#dce2dc] bg-[#f5f7f4] px-3 py-1 text-sm font-bold">
-                {assignmentLogs.length} recent
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full border border-[#dce2dc] bg-[#f5f7f4] px-3 py-1 text-sm font-bold">
+                  {assignmentLogs.length} latest
+                </span>
+                <Link className="btn btn-secondary" href="/admin/audit?action=customer_reassigned">
+                  View Full History
+                </Link>
+              </div>
             </div>
             <div className="mt-3 table-wrap rounded-md border border-[#dce2dc]">
               <table className="data-table">

@@ -29,9 +29,8 @@ export async function getDashboardData(): Promise<DashboardData> {
   let customersResult;
   let goalsResult;
   let actionsResult;
-  let logsResult;
   try {
-    [customersResult, goalsResult, actionsResult, logsResult] = await Promise.all([
+    [customersResult, goalsResult, actionsResult] = await Promise.all([
       supabase.from("customers").select("*").or("service_status.is.null,service_status.eq.active").order("created_at", { ascending: true }),
       supabase
         .from("financial_goals")
@@ -42,24 +41,15 @@ export async function getDashboardData(): Promise<DashboardData> {
         .from("next_step_actions")
         .select("*, customer:customers(id, full_name)")
         .order("due_date", { ascending: true, nullsFirst: false }),
-      supabase
-        .from("goal_progress_logs")
-        .select("*")
-        .order("created_at", { ascending: false }),
     ]);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Dashboard data could not load.";
     return { configured: true, customers: [], goals: [], actions: [], latestLogsByGoal: {}, error: message };
   }
 
-  const error = customersResult.error || goalsResult.error || actionsResult.error || logsResult.error;
+  const error = customersResult.error || goalsResult.error || actionsResult.error;
   if (error) {
     return { configured: true, customers: [], goals: [], actions: [], latestLogsByGoal: {}, error: error.message };
-  }
-
-  const latestLogsByGoal: Record<string, GoalProgressLog> = {};
-  for (const log of (logsResult.data ?? []) as GoalProgressLog[]) {
-    latestLogsByGoal[log.goal_id] ||= log;
   }
 
   const customers = filterCustomersForAccess(access, (customersResult.data ?? []) as Customer[]);
@@ -69,6 +59,19 @@ export async function getDashboardData(): Promise<DashboardData> {
     if (statusDelta) return statusDelta;
     return dateTimeValue(a.target_date) - dateTimeValue(b.target_date);
   });
+  const latestLogsByGoal: Record<string, GoalProgressLog> = {};
+  const goalIds = goals.map((goal) => goal.id);
+  if (goalIds.length) {
+    const logsResult = await supabase
+      .from("goal_progress_logs")
+      .select("*")
+      .in("goal_id", goalIds)
+      .order("created_at", { ascending: false });
+    if (logsResult.error) {
+      return { configured: true, customers: [], goals: [], actions: [], latestLogsByGoal: {}, error: logsResult.error.message };
+    }
+    for (const log of (logsResult.data ?? []) as GoalProgressLog[]) latestLogsByGoal[log.goal_id] ||= log;
+  }
 
   return {
     configured: true,
@@ -121,24 +124,24 @@ export async function getCustomerDetail(id: string) {
   const supabase = await createCfpServerClient();
   if (!supabase) return { configured: false };
 
-  const customerResult = await supabase.from("customers").select("*").eq("id", id).single();
+  const [customerResult, goalsResult, actionsResult, statementsResult] = await Promise.all([
+    supabase.from("customers").select("*").eq("id", id).single(),
+    supabase.from("financial_goals").select("*").eq("customer_id", id).order("target_date"),
+    supabase.from("next_step_actions").select("*").eq("customer_id", id).order("due_date", { ascending: true }),
+    supabase.from("financial_statement_items").select("*").eq("customer_id", id).order("created_at", { ascending: true }),
+  ]);
   const customer = customerResult.data as Customer | null;
   if (customer && !canAccessCustomer(access, customer)) {
     return { configured: true, customer: null, error: "You do not have access to this customer." };
   }
 
-  const [goalsResult, logsResult, actionsResult, statementsResult] = await Promise.all([
-    supabase.from("financial_goals").select("*").eq("customer_id", id).eq("status", "active").order("target_date"),
-    supabase
-      .from("goal_progress_logs")
-      .select("*")
-      .in("goal_id", await goalIdsForCustomer(id))
-      .order("created_at", { ascending: false }),
-    supabase.from("next_step_actions").select("*").eq("customer_id", id).order("due_date", { ascending: true }),
-    supabase.from("financial_statement_items").select("*").eq("customer_id", id).order("created_at", { ascending: true }),
-  ]);
-
-  const goals = (goalsResult.data ?? []) as FinancialGoal[];
+  const allGoals = (goalsResult.data ?? []) as FinancialGoal[];
+  const goalIds = allGoals.map((goal) => goal.id);
+  const logsResult = goalIds.length
+    ? await supabase.from("goal_progress_logs").select("*").in("goal_id", goalIds).order("created_at", { ascending: false })
+    : { data: [] as GoalProgressLog[], error: null };
+  const goals = allGoals.filter((goal) => goal.status === "active");
+  const inactiveGoals = allGoals.filter((goal) => goal.status !== "active");
   const logs = (logsResult.data ?? []) as GoalProgressLog[];
   const latestLogsByGoal: Record<string, GoalProgressLog> = {};
   for (const log of logs) latestLogsByGoal[log.goal_id] ||= log;
@@ -147,6 +150,7 @@ export async function getCustomerDetail(id: string) {
     configured: true,
     customer,
     goals,
+    inactiveGoals,
     logs,
     actions: (actionsResult.data ?? []) as NextStepAction[],
     statementItems: (statementsResult.data ?? []) as FinancialStatementItem[],
@@ -158,14 +162,6 @@ export async function getCustomerDetail(id: string) {
       actionsResult.error?.message ||
       statementsResult.error?.message,
   };
-}
-
-async function goalIdsForCustomer(customerId: string) {
-  const supabase = await createCfpServerClient();
-  if (!supabase) return [];
-  const { data } = await supabase.from("financial_goals").select("id").eq("customer_id", customerId);
-  const ids = (data ?? []).map((goal) => goal.id);
-  return ids.length ? ids : ["00000000-0000-0000-0000-000000000000"];
 }
 
 export async function getGoalDetail(customerId: string, goalId: string) {

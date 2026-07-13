@@ -568,6 +568,129 @@ export async function archiveGoal(formData: FormData) {
   redirect(`/customers/${customerId}?saved=goal-archived`);
 }
 
+export async function completeGoal(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (access.isClient) throw new Error("Only an admin or advisor can complete a goal.");
+  const goalId = requiredText(formData, "goal_id");
+
+  const { data: goal, error: goalError } = await supabase
+    .from("financial_goals")
+    .select("id,goal_name,status")
+    .eq("id", goalId)
+    .eq("customer_id", customerId)
+    .single();
+  if (goalError) throw new Error(goalError.message);
+  if (goal.status !== "active") redirect(`/customers/${customerId}`);
+
+  const { error } = await supabase.from("financial_goals").update({ status: "achieved" }).eq("id", goalId);
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: "goal_completed",
+    entityType: "financial_goals",
+    entityId: goalId,
+    payload: { customer_id: customerId, goal_name: goal.goal_name },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/customers/${customerId}?saved=goal-completed`);
+}
+
+export async function restoreGoal(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (access.isClient) throw new Error("Only an admin or advisor can restore a goal.");
+  const goalId = requiredText(formData, "goal_id");
+
+  const { data: goal, error: goalError } = await supabase
+    .from("financial_goals")
+    .select("id,goal_name,status")
+    .eq("id", goalId)
+    .eq("customer_id", customerId)
+    .single();
+  if (goalError) throw new Error(goalError.message);
+  if (goal.status === "active") redirect(`/customers/${customerId}`);
+
+  const normalizedName = goal.goal_name.trim().replace(/\s+/g, " ").toLowerCase();
+  const { data: activeGoals, error: duplicateError } = await supabase
+    .from("financial_goals")
+    .select("id,goal_name")
+    .eq("customer_id", customerId)
+    .eq("status", "active");
+  if (duplicateError) throw new Error(duplicateError.message);
+  const duplicate = (activeGoals ?? []).some(
+    (activeGoal) => activeGoal.id !== goalId && activeGoal.goal_name.trim().replace(/\s+/g, " ").toLowerCase() === normalizedName,
+  );
+  if (duplicate) {
+    redirect(`/customers/${customerId}?error=${encodeURIComponent("Archive or rename the active goal with the same name before restoring this one.")}`);
+  }
+
+  const { error } = await supabase.from("financial_goals").update({ status: "active" }).eq("id", goalId);
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: "goal_restored",
+    entityType: "financial_goals",
+    entityId: goalId,
+    payload: { customer_id: customerId, goal_name: goal.goal_name, previous_status: goal.status },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/customers/${customerId}?saved=goal-restored`);
+}
+
+export async function deleteEmptyGoal(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const { access } = await requireCustomerAccess(customerId);
+  if (access.isClient) throw new Error("Only an admin or advisor can delete a goal.");
+  const goalId = requiredText(formData, "goal_id");
+
+  const { data: goal, error: goalError } = await supabase
+    .from("financial_goals")
+    .select("id,goal_name,status")
+    .eq("id", goalId)
+    .eq("customer_id", customerId)
+    .single();
+  if (goalError) throw new Error(goalError.message);
+
+  const [logsResult, actionsResult, insightsResult] = await Promise.all([
+    supabase.from("goal_progress_logs").select("id", { count: "exact", head: true }).eq("goal_id", goalId),
+    supabase.from("next_step_actions").select("id", { count: "exact", head: true }).eq("goal_id", goalId),
+    supabase.from("goal_ai_insights").select("id", { count: "exact", head: true }).eq("goal_id", goalId),
+  ]);
+  const relatedError = logsResult.error || actionsResult.error || insightsResult.error;
+  if (relatedError) throw new Error(relatedError.message);
+  const relatedCount = (logsResult.count || 0) + (actionsResult.count || 0) + (insightsResult.count || 0);
+  if (relatedCount > 0) {
+    redirect(
+      `/customers/${customerId}?error=${encodeURIComponent("This goal has planning history and cannot be permanently deleted. Mark it completed or archive it instead.")}&goal=${goalId}#goal-${goalId}`,
+    );
+  }
+
+  const { error } = await supabase.from("financial_goals").delete().eq("id", goalId).eq("customer_id", customerId);
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: "empty_goal_deleted",
+    entityType: "financial_goals",
+    entityId: goalId,
+    payload: { customer_id: customerId, goal_name: goal.goal_name, previous_status: goal.status },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/customers/${customerId}?saved=goal-deleted`);
+}
+
 export async function applyCalculatedGoalNumber(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");

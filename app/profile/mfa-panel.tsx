@@ -67,6 +67,14 @@ export function MfaPanel() {
     <section className="panel p-5">
       <h2 className="text-xl font-bold">Account security</h2>
       <p className="mt-1 text-sm text-[#68756f]">Admins should activate an authenticator before real client data is stored.</p>
+      {!verified.length && !enrollment ? (
+        <ol className="mt-4 grid gap-2 rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-4 text-sm text-[#405047]">
+          <li><strong>1.</strong> Install Google Authenticator, Microsoft Authenticator, 1Password, or another TOTP app.</li>
+          <li><strong>2.</strong> Select Set Up Authenticator and scan the QR code.</li>
+          <li><strong>3.</strong> Enter the 6-digit code to verify and activate MFA.</li>
+          <li><strong>4.</strong> Sign out and sign in once to confirm the second-factor challenge works.</li>
+        </ol>
+      ) : null}
       {verified.length ? (
         <div className="mt-4 grid gap-3">
           <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
@@ -86,6 +94,7 @@ export function MfaPanel() {
           <img className="h-[220px] w-[220px] border border-[#dce2dc]" src={enrollment.qr} alt="Authenticator QR code" />
           <div className="grid content-start gap-3">
             <p className="text-sm text-[#405047]">Scan with Google Authenticator, Microsoft Authenticator, 1Password, or a compatible app.</p>
+            <p className="text-sm font-semibold text-amber-800">Do not email, message, or store a screenshot of this QR code or manual key.</p>
             <p className="break-all rounded-md bg-[#f5f7f4] p-3 font-mono text-xs">Manual key: {enrollment.secret}</p>
             <input className="input" inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} placeholder="6-digit code" />
             <button className="btn" type="button" onClick={verify}>Verify and Activate</button>

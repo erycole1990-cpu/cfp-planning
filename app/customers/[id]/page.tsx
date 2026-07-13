@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   completeNextStepAction,
-  archiveGoal,
   createNextStepAction,
   createFinancialStatementItem,
   deleteFinancialStatementItem,
@@ -20,6 +19,7 @@ import { AddGoalForm } from "./add-goal-form";
 import { StatementImporter } from "./statement-importer";
 import { RiskProfileField } from "@/app/customers/risk-profile-field";
 import type { FinancialStatementItem } from "@/lib/cfp/supabase";
+import { GoalLifecycleActions } from "./goal-lifecycle-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -345,7 +345,7 @@ export default async function CustomerDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ saved?: string }>;
+  searchParams?: Promise<{ saved?: string; error?: string; goal?: string; goals?: string }>;
 }) {
   const { id } = await params;
   const query = (await searchParams) ?? {};
@@ -387,6 +387,11 @@ export default async function CustomerDetailPage({
     if (priorityDelta) return priorityDelta;
     return dateTimeValue(a.target_date) - dateTimeValue(b.target_date);
   });
+  const priorityGoals = query.goals === "all" ? sortedGoals : sortedGoals.slice(0, 5);
+  const focusedGoalId =
+    (query.goal && sortedGoals.some((goal) => goal.id === query.goal) ? query.goal : null) ||
+    sortedGoals.find((goal) => goal.on_track_status === "off_track" || goal.on_track_status === "at_risk")?.id ||
+    sortedGoals[0]?.id;
   const statementItems = data.statementItems ?? [];
   const balanceSheetItems = statementItems.filter((item) => item.statement_type === "balance_sheet");
   const cashFlowItems = statementItems.filter((item) => item.statement_type === "cash_flow");
@@ -423,12 +428,21 @@ export default async function CustomerDetailPage({
 
       {!data.configured ? <EnvNotice /> : null}
       <ErrorNotice message={data.error} />
+      <ErrorNotice message={query.error} />
       {query.saved ? (
         <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
           {query.saved === "pending"
             ? "Submitted for advisor review. Official planning numbers will update after approval."
             : query.saved === "goal-number"
               ? "Calculated goal number saved to the customer portfolio."
+              : query.saved === "goal-completed"
+                ? "Goal marked completed. Its planning history remains available below."
+                : query.saved === "goal-archived"
+                  ? "Goal archived and removed from active planning."
+                  : query.saved === "goal-restored"
+                    ? "Goal restored to active planning."
+                    : query.saved === "goal-deleted"
+                      ? "Empty setup goal permanently deleted."
             : "Saved. The database and dashboard are updated."}
         </div>
       ) : null}
@@ -824,7 +838,7 @@ export default async function CustomerDetailPage({
 
               {sortedGoals.length ? (
                 <div className="mt-4 space-y-3">
-                  {sortedGoals.map((goal, index) => {
+                  {priorityGoals.map((goal, index) => {
                     const percent = progressPercent(goal.current_amount, goal.target_amount);
                     const canMoveUp = goal.priority !== "high";
                     const canMoveDown = goal.priority !== "low";
@@ -877,11 +891,24 @@ export default async function CustomerDetailPage({
                             <Link className="btn" href={calculatorHref(customer.id, goal)}>
                               Calculate Number
                             </Link>
+                            <Link className="btn btn-secondary" href={`?goal=${goal.id}#goal-${goal.id}`}>
+                              Manage
+                            </Link>
                           </div>
                         </div>
                       </div>
                     );
                   })}
+                  {sortedGoals.length > 5 ? (
+                    <div className="flex items-center justify-between gap-3 rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-4">
+                      <p className="text-sm text-[#68756f]">
+                        Showing {priorityGoals.length} of {sortedGoals.length} active goals.
+                      </p>
+                      <Link className="btn btn-secondary" href={query.goals === "all" ? "#goal-setting-list" : "?goals=all#goal-setting-list"}>
+                        {query.goals === "all" ? "Show Top 5" : "Show All Goals"}
+                      </Link>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="mt-4">
@@ -905,45 +932,55 @@ export default async function CustomerDetailPage({
                 const openGoalActions = goalActions.filter((action) => !action.completed);
                 const completedGoalActions = goalActions.filter((action) => action.completed);
                 const percent = progressPercent(goal.current_amount, goal.target_amount);
+                const canDelete = !(data.logs ?? []).some((log) => log.goal_id === goal.id) && goalActions.length === 0;
                 return (
-                  <article id={`goal-${goal.id}`} key={goal.id} className="panel p-5">
-                    <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-xl font-bold">{goal.goal_name}</h3>
-                          <StatusBadge status={goal.on_track_status} />
-                          <PriorityBadge priority={goal.priority} />
-                        </div>
-                        <p className="mt-2 text-sm text-[#68756f]">
-                          {goal.goal_type} · {formatCurrency(goal.current_amount)} of {formatCurrency(goal.target_amount)} · target{" "}
-                          {formatDate(goal.target_date)}
-                        </p>
-                        <div className="mt-3 max-w-xl">
-                          <div className="mb-1 flex items-center justify-between text-sm">
-                            <span className="font-semibold">Goal progress</span>
-                            <span className="font-bold text-[#115e59]">{percent}%</span>
+                  <details id={`goal-${goal.id}`} key={goal.id} className="panel scroll-mt-24" open={goal.id === focusedGoalId}>
+                    <summary className="cursor-pointer list-none p-5">
+                      <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-xl font-bold">{goal.goal_name}</h3>
+                            <StatusBadge status={goal.on_track_status} />
+                            <PriorityBadge priority={goal.priority} />
                           </div>
-                          <div className="h-2 rounded-full bg-[#eef3ef]">
-                            <div className="h-2 rounded-full bg-[#0f766e]" style={{ width: `${percent}%` }} />
+                          <p className="mt-2 text-sm text-[#68756f]">
+                            {goal.goal_type} - {formatCurrency(goal.current_amount)} of {formatCurrency(goal.target_amount)} - target {formatDate(goal.target_date)}
+                          </p>
+                          <div className="mt-3 max-w-xl">
+                            <div className="mb-1 flex items-center justify-between text-sm">
+                              <span className="font-semibold">Goal progress</span>
+                              <span className="font-bold text-[#115e59]">{percent}%</span>
+                            </div>
+                            <div className="h-2 rounded-full bg-[#eef3ef]">
+                              <div className="h-2 rounded-full bg-[#0f766e]" style={{ width: `${percent}%` }} />
+                            </div>
                           </div>
                         </div>
-                        <p className="mt-3 text-sm text-[#405047]">
-                          <span className="font-bold">Last progress note: </span>
-                          {latestLog?.notes || "No progress logged yet"}
-                        </p>
+                        <span className="justify-self-start rounded-md border border-[#dce2dc] bg-[#f7f8f5] px-3 py-2 text-sm font-bold lg:justify-self-end">
+                          Open Goal
+                        </span>
                       </div>
-                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                    </summary>
+                    <div className="border-t border-[#dce2dc] p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <p className="text-sm text-[#405047]">
+                        <span className="font-bold">Last progress note: </span>
+                        {latestLog?.notes || "No progress logged yet"}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
                         <Link className="btn btn-secondary" href={calculatorHref(customer.id, goal)}>
                           Calculate Number
                         </Link>
                         <Link className="btn btn-secondary" href={`/customers/${customer.id}/goals/${goal.id}`}>
                           View History
                         </Link>
-                        <form action={archiveGoal}>
-                          <input type="hidden" name="customer_id" value={customer.id} />
-                          <input type="hidden" name="goal_id" value={goal.id} />
-                          <button className="btn btn-secondary" type="submit">Archive</button>
-                        </form>
+                        <GoalLifecycleActions
+                          customerId={customer.id}
+                          goalId={goal.id}
+                          goalName={goal.goal_name}
+                          status={goal.status}
+                          canDelete={canDelete}
+                        />
                       </div>
                     </div>
 
@@ -1056,12 +1093,49 @@ export default async function CustomerDetailPage({
                         </div>
                       </div>
                     </div>
-                  </article>
+                    </div>
+                  </details>
                 );
               })
             ) : (
               <EmptyState title="No goals yet" body="Use Add financial goal to create the first goal for this customer." />
             )}
+
+            {(data.inactiveGoals ?? []).length ? (
+              <details className="panel">
+                <summary className="cursor-pointer p-5 font-bold">
+                  Completed and archived goals ({data.inactiveGoals?.length || 0})
+                </summary>
+                <div className="divide-y divide-[#dce2dc] border-t border-[#dce2dc]">
+                  {(data.inactiveGoals ?? []).map((goal) => {
+                    const goalActions = actionsByGoal.get(goal.id) ?? [];
+                    const canDelete = !(data.logs ?? []).some((log) => log.goal_id === goal.id) && goalActions.length === 0;
+                    return (
+                      <div className="flex flex-wrap items-center justify-between gap-4 p-4" key={goal.id}>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-bold">{goal.goal_name}</p>
+                            <span className="rounded-full border border-[#dce2dc] bg-[#f5f7f4] px-2 py-1 text-xs font-bold capitalize">
+                              {goal.status === "achieved" ? "Completed" : "Archived"}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm text-[#68756f]">
+                            {goal.goal_type} - {formatCurrency(goal.current_amount)} of {formatCurrency(goal.target_amount)} - target {formatDate(goal.target_date)}
+                          </p>
+                        </div>
+                        <GoalLifecycleActions
+                          customerId={customer.id}
+                          goalId={goal.id}
+                          goalName={goal.goal_name}
+                          status={goal.status}
+                          canDelete={canDelete}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            ) : null}
           </section>
 
           <section className="panel p-5">

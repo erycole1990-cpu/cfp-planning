@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { completeNextStepAction } from "./actions";
 import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge, StatCard, StatusBadge } from "./ui";
 import { formatCurrency, formatDate } from "@/lib/cfp/format";
 import { getDashboardData } from "@/lib/cfp/data";
+import { requireCurrentAccess } from "@/lib/cfp/access";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +22,8 @@ export default async function Home({
 }: {
   searchParams?: Promise<{ status?: string; saved?: string }>;
 }) {
+  const access = await requireCurrentAccess();
+  if (access.isClient) redirect("/my-plan");
   const params = (await searchParams) ?? {};
   const data = await getDashboardData();
   const openActions = data.actions.filter((action) => !action.completed);

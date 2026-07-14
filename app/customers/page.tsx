@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, StatusBadge } from "../ui";
 import { formatDate } from "@/lib/cfp/format";
 import { getCustomersData, type CustomerServiceFilter } from "@/lib/cfp/data";
+import { requireCurrentAccess } from "@/lib/cfp/access";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +43,8 @@ export default async function CustomersPage({
 }: {
   searchParams?: Promise<{ status?: string; saved?: string; q?: string }>;
 }) {
+  const access = await requireCurrentAccess();
+  if (access.isClient) redirect("/my-plan");
   const query = (await searchParams) ?? {};
   const filter = customerFilter(query.status);
   const search = String(query.q ?? "").trim();

@@ -48,10 +48,12 @@ export function AddGoalForm({
   customerId,
   actor,
   today,
+  submitForReview = false,
 }: {
   customerId: string;
   actor: string;
   today: string;
+  submitForReview?: boolean;
 }) {
   const [formState, formAction, pending] = useActionState(createGoalFromForm, { error: null } as GoalFormState);
   const [targetAmount, setTargetAmount] = useState("");
@@ -197,7 +199,7 @@ export function AddGoalForm({
         <input className="input" name="target_date" required min={today} type="date" />
       </label>
       <button className="btn self-end" type="submit" disabled={pending}>
-        {pending ? "Adding..." : "Add Goal"}
+        {pending ? "Submitting..." : submitForReview ? "Submit Goal for Review" : "Add Goal"}
       </button>
     </form>
   );

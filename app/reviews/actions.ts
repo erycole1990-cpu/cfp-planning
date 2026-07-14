@@ -11,13 +11,39 @@ function text(formData: FormData, key: string) {
   return value || null;
 }
 
+const customerProfileFields = new Set([
+  "full_name",
+  "email",
+  "phone",
+  "date_of_birth",
+  "nric_passport",
+  "nationality",
+  "marital_status",
+  "number_of_dependents",
+  "residential_address",
+  "employment_status",
+  "occupation",
+  "employer_name",
+  "monthly_income_range",
+  "source_of_funds",
+  "source_of_wealth",
+  "risk_profile",
+  "notes",
+]);
+
+function normalizedGoalName(value: unknown) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 export async function reviewPersonalSubmission(formData: FormData) {
   const access = await requireCurrentAccess();
   if (!access.isAdmin && !access.isAgent) throw new Error("Only an independent advisor or admin can review this update.");
 
   const submissionId = String(formData.get("submission_id") || "");
   const decision = String(formData.get("decision") || "");
+  const reviewNotes = text(formData, "review_notes");
   if (!submissionId || !["approved", "rejected"].includes(decision)) throw new Error("The review decision is invalid.");
+  if (decision === "rejected" && !reviewNotes) throw new Error("Add a reason before rejecting this update.");
 
   const supabase = await createCfpServerClient();
   if (!supabase) throw new Error("The database is not configured.");
@@ -87,6 +113,51 @@ export async function reviewPersonalSubmission(formData: FormData) {
         .update({ current_amount: loggedAmount, on_track_status: onTrackStatus })
         .eq("id", goalId);
       if (goalUpdateError) throw new Error(goalUpdateError.message);
+    } else if (submission.submission_type === "customer_profile_update") {
+      const profileUpdate = Object.fromEntries(
+        Object.entries(payload).filter(([key]) => customerProfileFields.has(key)),
+      );
+      if (!Object.keys(profileUpdate).length) throw new Error("This profile proposal does not contain any supported changes.");
+      const { error } = await supabase.from("customers").update(profileUpdate).eq("id", customer.id);
+      if (error) throw new Error(error.message);
+    } else if (submission.submission_type === "goal_create") {
+      const goalName = String(payload.goal_name || "").trim();
+      const targetAmount = Number(payload.target_amount);
+      const currentAmount = Number(payload.current_amount);
+      const targetDate = String(payload.target_date || "");
+      if (!goalName) throw new Error("The proposed goal needs a name.");
+      if (!Number.isFinite(targetAmount) || targetAmount <= 0) throw new Error("The proposed target amount must be greater than zero.");
+      if (!Number.isFinite(currentAmount) || currentAmount < 0) throw new Error("The proposed current amount is invalid.");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) throw new Error("The proposed target date is invalid.");
+
+      const { data: activeGoals, error: activeGoalsError } = await supabase
+        .from("financial_goals")
+        .select("id,goal_name")
+        .eq("customer_id", customer.id)
+        .eq("status", "active");
+      if (activeGoalsError) throw new Error(activeGoalsError.message);
+      if ((activeGoals || []).some((goal) => normalizedGoalName(goal.goal_name) === normalizedGoalName(goalName))) {
+        throw new Error(`An active goal named "${goalName}" already exists.`);
+      }
+
+      const goalPayload = {
+        customer_id: customer.id,
+        goal_type: String(payload.goal_type || "Other / Custom Goal"),
+        goal_name: goalName,
+        target_amount: targetAmount,
+        current_amount: currentAmount,
+        target_date: targetDate,
+        priority: String(payload.priority || "medium"),
+        status: "active",
+      };
+      const onTrackStatus = calculateOnTrackStatus({
+        currentAmount,
+        targetAmount,
+        createdAt: new Date(),
+        targetDate,
+      });
+      const { error } = await supabase.from("financial_goals").insert({ ...goalPayload, on_track_status: onTrackStatus });
+      if (error) throw new Error(error.message);
     } else {
       throw new Error("This submission type is not supported.");
     }
@@ -94,7 +165,7 @@ export async function reviewPersonalSubmission(formData: FormData) {
 
   const { error: reviewError } = await supabase
     .from("pending_client_submissions")
-    .update({ review_status: decision, review_notes: text(formData, "review_notes") })
+    .update({ review_status: decision, review_notes: reviewNotes })
     .eq("id", submission.id);
   if (reviewError) throw new Error(reviewError.message);
 
@@ -108,7 +179,7 @@ export async function reviewPersonalSubmission(formData: FormData) {
       customer_id: customer.id,
       customer_name: customer.full_name,
       submission_type: submission.submission_type,
-      notes: text(formData, "review_notes"),
+      notes: reviewNotes,
     },
   });
 

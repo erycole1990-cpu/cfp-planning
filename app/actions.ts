@@ -152,6 +152,11 @@ function requiresIndependentReview(
   return access.isClient || isPersonalCustomer(access, customer);
 }
 
+function comparableValue(value: unknown) {
+  if (value === undefined || value === null || value === "") return null;
+  return typeof value === "string" ? value.trim() || null : value;
+}
+
 export async function createCustomer(formData: FormData) {
   const access = await requireCurrentAccess();
   if (!access.isAdmin && !access.isAgent) throw new Error("Only admins and agents can add customers.");
@@ -251,6 +256,40 @@ export async function updateCustomer(formData: FormData) {
   };
 
   const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
+  const currentCustomer = customer as unknown as Record<string, unknown>;
+  const changedPayload = Object.fromEntries(
+    Object.entries(cleanPayload).filter(([key, value]) => comparableValue(currentCustomer[key]) !== comparableValue(value)),
+  );
+
+  if (!Object.keys(changedPayload).length) {
+    redirect(`/customers/${customerId}?saved=customer`);
+  }
+
+  if (requiresIndependentReview(access, customer)) {
+    const { data: existingSubmission, error: pendingError } = await supabase
+      .from("pending_client_submissions")
+      .select("id")
+      .eq("customer_id", customerId)
+      .eq("submission_type", "customer_profile_update")
+      .eq("review_status", "pending")
+      .limit(1)
+      .maybeSingle();
+    if (pendingError) throw new Error(pendingError.message);
+    if (existingSubmission) throw new Error("A profile update is already waiting for advisor review.");
+
+    const { error: submissionError } = await supabase.from("pending_client_submissions").insert({
+      customer_id: customerId,
+      submitted_by_user_id: access.user.id,
+      submission_type: "customer_profile_update",
+      payload: changedPayload,
+    });
+    if (submissionError) throw new Error(submissionError.message);
+
+    revalidatePath("/reviews");
+    revalidatePath(`/customers/${customerId}`);
+    redirect(`/customers/${customerId}?saved=pending`);
+  }
+
   const { error } = await supabase.from("customers").update(cleanPayload).eq("id", customerId);
   if (error) throw new Error(error.message);
 
@@ -474,7 +513,6 @@ export async function createGoal(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
   const { access, customer } = await requireCustomerAccess(customerId);
-  if (requiresIndependentReview(access, customer)) throw new Error("Goals need independent advisor review before becoming official.");
   const targetDate = requiredText(formData, "target_date");
   const targetDateValue = new Date(`${targetDate}T00:00:00`);
   if (targetDateValue < new Date(new Date().toDateString())) {
@@ -496,6 +534,24 @@ export async function createGoal(formData: FormData) {
     throw new Error(`An active goal named "${goalName}" already exists. Use a more specific name or archive the existing goal first.`);
   }
 
+  if (requiresIndependentReview(access, customer)) {
+    const { data: pendingGoals, error: pendingGoalsError } = await supabase
+      .from("pending_client_submissions")
+      .select("payload")
+      .eq("customer_id", customerId)
+      .eq("submission_type", "goal_create")
+      .eq("review_status", "pending");
+    if (pendingGoalsError) throw new Error(pendingGoalsError.message);
+    const pendingDuplicate = (pendingGoals || []).some(
+      (submission) =>
+        String((submission.payload as Record<string, unknown> | null)?.goal_name || "")
+          .trim()
+          .replace(/\s+/g, " ")
+          .toLowerCase() === normalizedGoalName,
+    );
+    if (pendingDuplicate) throw new Error(`A proposed goal named "${goalName}" is already waiting for advisor review.`);
+  }
+
   const payload = {
     customer_id: customerId,
     goal_type: requiredText(formData, "goal_type"),
@@ -512,6 +568,20 @@ export async function createGoal(formData: FormData) {
     createdAt: new Date(),
     targetDate: payload.target_date,
   });
+
+  if (requiresIndependentReview(access, customer)) {
+    const { error: submissionError } = await supabase.from("pending_client_submissions").insert({
+      customer_id: customerId,
+      submitted_by_user_id: access.user.id,
+      submission_type: "goal_create",
+      payload,
+    });
+    if (submissionError) throw new Error(submissionError.message);
+
+    revalidatePath("/reviews");
+    revalidatePath(`/customers/${customerId}`);
+    redirect(`/customers/${customerId}?saved=pending`);
+  }
 
   const { data, error } = await supabase
     .from("financial_goals")

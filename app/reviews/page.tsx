@@ -10,6 +10,8 @@ export const dynamic = "force-dynamic";
 function submissionLabel(type: string) {
   if (type === "goal_progress") return "Goal progress";
   if (type === "financial_statement_import") return "Statement import";
+  if (type === "customer_profile_update") return "Profile update";
+  if (type === "goal_create") return "New financial goal";
   return "Financial statement item";
 }
 
@@ -21,7 +23,75 @@ function submissionSummary(submission: PendingClientSubmission) {
   if (submission.submission_type === "financial_statement_import") {
     return `${Array.isArray(payload.rows) ? payload.rows.length : 0} imported rows`;
   }
+  if (submission.submission_type === "customer_profile_update") {
+    return `${Object.keys(payload).length} profile field${Object.keys(payload).length === 1 ? "" : "s"} changed`;
+  }
+  if (submission.submission_type === "goal_create") {
+    return `${String(payload.goal_name || "New goal")} - ${formatCurrency(Number(payload.target_amount) || 0)}`;
+  }
   return `${String(payload.description || "Statement item")} - ${formatCurrency(Number(payload.amount) || 0)}`;
+}
+
+const profileFieldLabels: Record<string, string> = {
+  full_name: "Full name",
+  email: "Email",
+  phone: "Phone",
+  date_of_birth: "Date of birth",
+  nric_passport: "NRIC / Passport",
+  nationality: "Nationality",
+  marital_status: "Marital status",
+  number_of_dependents: "Dependents",
+  residential_address: "Residential address",
+  employment_status: "Employment status",
+  occupation: "Occupation",
+  employer_name: "Employer / Business",
+  monthly_income_range: "Monthly income",
+  source_of_funds: "Source of funds",
+  source_of_wealth: "Source of wealth",
+  risk_profile: "Risk profile",
+  notes: "Notes",
+};
+
+function readableValue(value: unknown) {
+  if (value === undefined || value === null || value === "") return "Not set";
+  return String(value);
+}
+
+function ProposalComparison({ submission, customer }: { submission: PendingClientSubmission; customer?: Customer }) {
+  const payload = submission.payload || {};
+  if (submission.submission_type === "customer_profile_update") {
+    const current = (customer || {}) as unknown as Record<string, unknown>;
+    return (
+      <div className="mt-4 overflow-hidden rounded-md border border-[#dce2dc]">
+        <div className="grid grid-cols-[minmax(8rem,0.7fr)_1fr_1fr] gap-3 bg-[#f5f7f4] px-4 py-3 text-xs font-bold uppercase text-[#68756f]">
+          <span>Field</span><span>Current</span><span>Proposed</span>
+        </div>
+        {Object.entries(payload).map(([key, value]) => (
+          <div className="grid grid-cols-[minmax(8rem,0.7fr)_1fr_1fr] gap-3 border-t border-[#dce2dc] px-4 py-3 text-sm" key={key}>
+            <span className="font-bold">{profileFieldLabels[key] || key}</span>
+            <span className="whitespace-pre-wrap text-[#68756f]">{readableValue(current[key])}</span>
+            <span className="whitespace-pre-wrap font-semibold text-[#115e59]">{readableValue(value)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (submission.submission_type === "goal_create") {
+    const rows = [
+      ["Goal", payload.goal_name],
+      ["Type", payload.goal_type],
+      ["Target amount", formatCurrency(Number(payload.target_amount) || 0)],
+      ["Current amount", formatCurrency(Number(payload.current_amount) || 0)],
+      ["Target date", formatDate(String(payload.target_date || ""))],
+      ["Priority", payload.priority],
+    ];
+    return (
+      <dl className="mt-4 grid gap-3 rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-4 sm:grid-cols-2 lg:grid-cols-3">
+        {rows.map(([label, value]) => <div key={String(label)}><dt className="label">{String(label)}</dt><dd className="mt-1 font-semibold">{readableValue(value)}</dd></div>)}
+      </dl>
+    );
+  }
+  return null;
 }
 
 export default async function ReviewsPage({ searchParams }: { searchParams: Promise<{ saved?: string }> }) {
@@ -45,6 +115,15 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
     ? await supabase.from("customers").select("*").in("id", customerIds)
     : { data: [] };
   const customers = new Map(((customerRows || []) as Customer[]).map((customer) => [customer.id, customer]));
+  const independentlyReviewableSubmissions = submissions.filter(
+    (submission) => submission.submitted_by_user_id !== access.user.id,
+  );
+  const visibleSubmissions = access.isAdmin
+    ? independentlyReviewableSubmissions
+    : independentlyReviewableSubmissions.filter((submission) => {
+        const customer = customers.get(submission.customer_id);
+        return customer?.assigned_agent_user_id === access.user.id;
+      });
 
   return (
     <AppShell>
@@ -59,11 +138,11 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
           The personal update was {params.saved}.
         </div>
       ) : null}
-      {!error && submissions.length === 0 ? (
+      {!error && visibleSubmissions.length === 0 ? (
         <EmptyState title="No updates waiting" body="Submitted personal plan changes will appear here for independent review." />
       ) : (
         <div className="grid gap-4">
-          {submissions.map((submission) => {
+          {visibleSubmissions.map((submission) => {
             const customer = customers.get(submission.customer_id);
             return (
               <article className="panel p-5" key={submission.id}>
@@ -75,9 +154,10 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
                     <p className="mt-3 font-semibold">{submissionSummary(submission)}</p>
                   </div>
                 </div>
+                <ProposalComparison submission={submission} customer={customer} />
                 <form action={reviewPersonalSubmission} className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_auto]">
                   <input type="hidden" name="submission_id" value={submission.id} />
-                  <input className="input" name="review_notes" placeholder="Review note or reason" />
+                  <input className="input" name="review_notes" placeholder="Review note (required when rejecting)" />
                   <button className="btn" type="submit" name="decision" value="approved">Approve</button>
                   <button className="btn btn-secondary" type="submit" name="decision" value="rejected">Reject</button>
                 </form>

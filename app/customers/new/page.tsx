@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { AppShell, EmptyState, PageHeader } from "@/app/ui";
 import { accessDisplayName, requireCurrentAccess } from "@/lib/cfp/access";
 import { createCfpServerClient } from "@/lib/cfp/supabase";
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function NewCustomerPage() {
   const access = await requireCurrentAccess();
+  if (access.isClient) redirect("/my-plan");
   const supabase = await createCfpServerClient();
   let activeAgents: { id: string; name: string; email: string }[] = [];
   let agentLoadError: string | null = null;

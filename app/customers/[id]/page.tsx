@@ -161,6 +161,10 @@ function submissionLabel(type: string) {
       return "Statement import";
     case "goal_progress":
       return "Goal progress update";
+    case "customer_profile_update":
+      return "Profile update";
+    case "goal_create":
+      return "New financial goal";
     default:
       return "Planning update";
   }
@@ -475,7 +479,7 @@ export default async function CustomerDetailPage({
         <div className="mb-4 rounded-md border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
           <p className="font-bold">This is your personal financial plan.</p>
           <p className="mt-1">
-            Financial entries and progress updates are submitted to {customer?.assigned_advisor_name || "your assigned advisor"} for independent review.
+            Profile, goal, financial entry, and progress changes are submitted to {customer?.assigned_advisor_name || "your assigned advisor"} for independent review.
           </p>
         </div>
       ) : null}
@@ -577,10 +581,8 @@ export default async function CustomerDetailPage({
                 </p>
               ) : null}
 
-              {!submissionOnly ? (
-                <>
               <details className="mt-5 rounded-md border border-[#dce2dc] p-4">
-                <summary className="cursor-pointer font-bold">Edit customer</summary>
+                <summary className="cursor-pointer font-bold">{submissionOnly ? "Propose profile update" : "Edit customer"}</summary>
                 <form action={updateCustomer} className="mt-4 grid gap-3 sm:grid-cols-2">
                   <input type="hidden" name="customer_id" value={customer.id} />
                   <div className="sm:col-span-2">
@@ -698,11 +700,12 @@ export default async function CustomerDetailPage({
                     <textarea className="input min-h-24" name="notes" defaultValue={customer.notes || ""} />
                   </label>
                   <button className="btn sm:col-span-2" type="submit">
-                    Save Profile
+                    {submissionOnly ? "Submit Profile for Review" : "Save Profile"}
                   </button>
                 </form>
               </details>
 
+              {!submissionOnly ? (
               <details className="mt-5 rounded-md border border-[#dce2dc] p-4">
                 <summary className="cursor-pointer font-bold">{isInactiveCustomer ? "Reactivate servicing" : "End servicing"}</summary>
                 {isInactiveCustomer ? (
@@ -733,23 +736,18 @@ export default async function CustomerDetailPage({
                   </form>
                 )}
               </details>
-                </>
               ) : null}
             </div>
 
-            {submissionOnly ? (
-              <div className="panel p-5">
-                <h2 className="text-xl font-bold">Personal plan updates</h2>
+            <div className="panel p-5">
+              <h2 className="text-xl font-bold">{submissionOnly ? "Propose financial goal" : "Add financial goal"}</h2>
+              {submissionOnly ? (
                 <p className="mt-2 text-sm text-[#68756f]">
-                  Add financial statement entries or log goal progress below. Your assigned advisor reviews each submission before official planning numbers change.
+                  Your assigned advisor reviews this goal before it becomes part of the official plan.
                 </p>
-              </div>
-            ) : (
-              <div className="panel p-5">
-                <h2 className="text-xl font-bold">Add financial goal</h2>
-                <AddGoalForm customerId={customer.id} actor={actor} today={today} />
-              </div>
-            )}
+              ) : null}
+              <AddGoalForm customerId={customer.id} actor={actor} today={today} submitForReview={submissionOnly} />
+            </div>
           </section>
 
           <section id="financial-statements" className="panel p-5">

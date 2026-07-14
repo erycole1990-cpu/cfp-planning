@@ -16,6 +16,8 @@ export type UserProfile = {
   license_no: string | null;
   branch_name: string | null;
   bio: string | null;
+  advisor_code: string | null;
+  accepting_new_clients: boolean;
   updated_at: string;
   created_at: string;
 };
@@ -71,6 +73,8 @@ function fallbackProfile(user: { id: string; email: string }, fullName?: string 
     license_no: null,
     branch_name: null,
     bio: null,
+    advisor_code: null,
+    accepting_new_clients: false,
     updated_at: new Date().toISOString(),
     created_at: new Date().toISOString(),
   };

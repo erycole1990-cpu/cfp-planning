@@ -19,11 +19,9 @@ function SubmitButton() {
 export function PersonalPlanForm({
   defaultName,
   email,
-  advisors,
 }: {
   defaultName: string;
   email: string;
-  advisors: Array<{ id: string; name: string }>;
 }) {
   const [state, formAction] = useActionState(createPersonalPlan, initialState);
 
@@ -52,13 +50,9 @@ export function PersonalPlanForm({
         <input className="input" name="date_of_birth" type="date" />
       </label>
       <label className="field">
-        <span className="label">Independent advisor</span>
-        <select className="input" name="assigned_agent_user_id" required defaultValue="">
-          <option value="">Choose another approved advisor</option>
-          {advisors.map((advisor) => (
-            <option key={advisor.id} value={advisor.id}>{advisor.name}</option>
-          ))}
-        </select>
+        <span className="label">Adviser referral code (optional)</span>
+        <input className="input uppercase" name="advisor_code" autoComplete="off" placeholder="Example: CFP-A1B2C3" />
+        <span className="text-xs text-[#68756f]">Enter the private code your adviser gave you. Leave blank for admin assignment.</span>
       </label>
 
       <RiskProfileField defaultValue="moderate" openByDefault />

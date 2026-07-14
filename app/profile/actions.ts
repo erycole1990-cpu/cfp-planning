@@ -46,3 +46,19 @@ export async function updateOwnProfile(formData: FormData) {
   revalidatePath("/admin/access");
   redirect("/profile?saved=1");
 }
+
+export async function updateAdvisorPreferences(formData: FormData) {
+  const access = await requireCurrentAccess();
+  if (!access.isAgent) throw new Error("Only an active adviser can update referral availability.");
+
+  const supabase = await createCfpServerClient();
+  if (!supabase) throw new Error("Supabase is not configured.");
+  const accepting = formData.get("accepting_new_clients") === "on";
+  const { error } = await supabase.rpc("cfp_update_advisor_preferences", {
+    requested_accepting_new_clients: accepting,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/profile");
+  redirect("/profile?preferences=1");
+}

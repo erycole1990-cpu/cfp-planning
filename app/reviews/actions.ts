@@ -165,7 +165,12 @@ export async function reviewPersonalSubmission(formData: FormData) {
 
   const { error: reviewError } = await supabase
     .from("pending_client_submissions")
-    .update({ review_status: decision, review_notes: reviewNotes })
+    .update({
+      review_status: decision,
+      review_notes: reviewNotes,
+      reviewed_by_user_id: access.user.id,
+      reviewed_at: new Date().toISOString(),
+    })
     .eq("id", submission.id);
   if (reviewError) throw new Error(reviewError.message);
 
@@ -187,4 +192,45 @@ export async function reviewPersonalSubmission(formData: FormData) {
   revalidatePath("/reviews");
   revalidatePath(`/customers/${customer.id}`);
   redirect(`/reviews?saved=${decision}`);
+}
+
+export async function acceptAdvisorRequest(formData: FormData) {
+  const access = await requireCurrentAccess();
+  if (!access.isAgent) throw new Error("Only an active adviser can accept a referral.");
+  const customerId = String(formData.get("customer_id") || "");
+  if (!customerId) throw new Error("The referral is invalid.");
+
+  const supabase = await createCfpServerClient();
+  if (!supabase) throw new Error("The database is not configured.");
+  const { error } = await supabase.rpc("cfp_accept_advisor_request", {
+    requested_customer_id: customerId,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/");
+  revalidatePath("/customers");
+  revalidatePath("/reviews");
+  revalidatePath("/notifications");
+  redirect("/reviews?referral=accepted");
+}
+
+export async function declineAdvisorRequest(formData: FormData) {
+  const access = await requireCurrentAccess();
+  if (!access.isAgent) throw new Error("Only an active adviser can decline a referral.");
+  const customerId = String(formData.get("customer_id") || "");
+  const reason = text(formData, "decline_reason");
+  if (!customerId || !reason) throw new Error("Add a reason before declining this referral.");
+
+  const supabase = await createCfpServerClient();
+  if (!supabase) throw new Error("The database is not configured.");
+  const { error } = await supabase.rpc("cfp_decline_advisor_request", {
+    requested_customer_id: customerId,
+    decline_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/");
+  revalidatePath("/reviews");
+  revalidatePath("/notifications");
+  redirect("/reviews?referral=declined");
 }

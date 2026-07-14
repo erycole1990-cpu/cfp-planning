@@ -34,9 +34,7 @@ export async function createPersonalPlan(
     }
 
     const fullName = value(formData, "full_name");
-    const assignedAgentUserId = value(formData, "assigned_agent_user_id");
     if (!fullName) return { error: "Full name is required." };
-    if (!assignedAgentUserId) return { error: "Choose an independent advisor for your personal plan." };
 
     const supabase = await createCfpServerClient();
     if (!supabase) return { error: "The database is not configured for this deployment." };
@@ -48,7 +46,7 @@ export async function createPersonalPlan(
         phone: value(formData, "phone"),
         date_of_birth: value(formData, "date_of_birth"),
         risk_profile: value(formData, "risk_profile") || "moderate",
-        assigned_agent_user_id: assignedAgentUserId,
+        advisor_code: value(formData, "advisor_code"),
         notes: value(formData, "notes"),
       },
     });

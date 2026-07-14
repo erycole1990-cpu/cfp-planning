@@ -2,9 +2,22 @@ import Link from "next/link";
 import { statusLabel } from "@/lib/cfp/status";
 import { accessDisplayName, getCurrentAccess } from "@/lib/cfp/access";
 import { signOut } from "@/app/login/actions";
+import { createCfpServerClient } from "@/lib/cfp/supabase";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const access = await getCurrentAccess();
+  let unreadAlerts = 0;
+  if (access) {
+    const supabase = await createCfpServerClient();
+    if (supabase) {
+      const { count } = await supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_user_id", access.user.id)
+        .is("read_at", null);
+      unreadAlerts = count || 0;
+    }
+  }
 
   return (
     <div className="min-h-screen">
@@ -35,6 +48,11 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/calculator">
               Calculator
             </Link>
+            {access ? (
+              <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/notifications">
+                Alerts{unreadAlerts ? ` (${unreadAlerts})` : ""}
+              </Link>
+            ) : null}
             {access?.isAdmin ? (
               <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/admin/access">
                 Admin

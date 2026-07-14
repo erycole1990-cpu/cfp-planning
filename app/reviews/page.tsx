@@ -3,7 +3,7 @@ import { AppShell, EmptyState, ErrorNotice, PageHeader } from "@/app/ui";
 import { requireCurrentAccess } from "@/lib/cfp/access";
 import { formatCurrency, formatDate } from "@/lib/cfp/format";
 import { createCfpServerClient, type Customer, type PendingClientSubmission } from "@/lib/cfp/supabase";
-import { reviewPersonalSubmission } from "./actions";
+import { acceptAdvisorRequest, declineAdvisorRequest, reviewPersonalSubmission } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +94,14 @@ function ProposalComparison({ submission, customer }: { submission: PendingClien
   return null;
 }
 
-export default async function ReviewsPage({ searchParams }: { searchParams: Promise<{ saved?: string }> }) {
+type AdvisorRequest = {
+  customer_id: string;
+  full_name: string;
+  email: string | null;
+  created_at: string;
+};
+
+export default async function ReviewsPage({ searchParams }: { searchParams: Promise<{ saved?: string; referral?: string }> }) {
   const access = await requireCurrentAccess();
   const params = await searchParams;
   if (!access.isAdmin && !access.isAgent) {
@@ -103,6 +110,24 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
 
   const supabase = await createCfpServerClient();
   if (!supabase) return <AppShell><EmptyState title="Database unavailable" body="This deployment is not connected to the planning database." /></AppShell>;
+
+  let advisorRequests: AdvisorRequest[] = [];
+  let intakeCustomers: Customer[] = [];
+  let referralError: string | undefined;
+  if (access.isAgent) {
+    const result = await supabase.rpc("cfp_list_advisor_requests");
+    advisorRequests = (result.data || []) as AdvisorRequest[];
+    referralError = result.error?.message;
+  } else if (access.isAdmin) {
+    const result = await supabase
+      .from("customers")
+      .select("*")
+      .eq("advisor_request_status", "unassigned")
+      .is("assigned_agent_user_id", null)
+      .order("created_at", { ascending: true });
+    intakeCustomers = (result.data || []) as Customer[];
+    referralError = result.error?.message;
+  }
 
   const { data, error } = await supabase
     .from("pending_client_submissions")
@@ -133,10 +158,62 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
         actions={<Link className="btn btn-secondary" href="/">Dashboard</Link>}
       />
       <ErrorNotice message={error?.message} />
+      <ErrorNotice message={referralError} />
       {params.saved ? (
         <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
           The personal update was {params.saved}.
         </div>
+      ) : null}
+      {params.referral ? (
+        <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+          The adviser referral was {params.referral}.
+        </div>
+      ) : null}
+      {access.isAgent && advisorRequests.length ? (
+        <section className="panel mb-6 p-5">
+          <div className="mb-4">
+            <p className="label">Client intake</p>
+            <h2 className="text-xl font-bold">Referral requests</h2>
+            <p className="mt-1 text-sm text-[#68756f]">Accept only clients you can independently advise. Declined requests return to admin intake.</p>
+          </div>
+          <div className="grid gap-4">
+            {advisorRequests.map((request) => (
+              <article className="rounded-md border border-[#dce2dc] p-4" key={request.customer_id}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold">{request.full_name}</h3>
+                    <p className="text-sm text-[#68756f]">{request.email || "Email not provided"}</p>
+                    <p className="mt-1 text-xs text-[#68756f]">Requested {formatDate(request.created_at)}</p>
+                  </div>
+                  <form action={acceptAdvisorRequest}>
+                    <input type="hidden" name="customer_id" value={request.customer_id} />
+                    <button className="btn" type="submit">Accept Client</button>
+                  </form>
+                </div>
+                <form action={declineAdvisorRequest} className="mt-3 flex flex-wrap gap-2">
+                  <input type="hidden" name="customer_id" value={request.customer_id} />
+                  <input className="input min-w-56 flex-1" name="decline_reason" placeholder="Reason for returning to admin" required />
+                  <button className="btn btn-secondary" type="submit">Decline</button>
+                </form>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {access.isAdmin && intakeCustomers.length ? (
+        <section className="panel mb-6 p-5">
+          <p className="label">Admin intake</p>
+          <h2 className="text-xl font-bold">Unassigned personal plans</h2>
+          <p className="mt-1 text-sm text-[#68756f]">These clients did not enter a valid adviser code or their requested adviser declined.</p>
+          <div className="mt-4 grid gap-3">
+            {intakeCustomers.map((customer) => (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#dce2dc] p-4" key={customer.id}>
+                <div><p className="font-bold">{customer.full_name}</p><p className="text-sm text-[#68756f]">{customer.email || "Email not provided"}</p></div>
+                <Link className="btn btn-secondary" href="/admin/access">Assign Adviser</Link>
+              </div>
+            ))}
+          </div>
+        </section>
       ) : null}
       {!error && visibleSubmissions.length === 0 ? (
         <EmptyState title="No updates waiting" body="Submitted personal plan changes will appear here for independent review." />

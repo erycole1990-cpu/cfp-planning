@@ -22,11 +22,27 @@ export type Customer = {
   service_ended_at: string | null;
   service_ended_reason: string | null;
   assigned_agent_user_id: string | null;
+  requested_agent_user_id: string | null;
+  advisor_request_status: "not_required" | "unassigned" | "pending" | "accepted" | "declined" | null;
   client_user_id: string | null;
   client_stage: string | null;
   risk_profile: string | null;
   assigned_advisor_name: string | null;
   notes: string | null;
+};
+
+export type Notification = {
+  id: string;
+  created_at: string;
+  recipient_user_id: string;
+  actor_user_id: string | null;
+  notification_type: string;
+  title: string;
+  body: string;
+  customer_id: string | null;
+  submission_id: string | null;
+  href: string | null;
+  read_at: string | null;
 };
 
 export type FinancialGoal = {

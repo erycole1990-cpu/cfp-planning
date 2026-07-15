@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-function callbackUrl(requestedRole?: "agent" | "client") {
+function callbackUrl(requestedRole?: "agent" | "client", advisorCode?: string) {
   const url = new URL("/auth/callback", window.location.origin);
   const next = safeNextPath(new URLSearchParams(window.location.search).get("next"));
   if (next) url.searchParams.set("next", next);
   if (requestedRole === "agent") url.searchParams.set("requested_role", "agent");
+  if (requestedRole === "client" && advisorCode?.trim()) url.searchParams.set("advisor_code", advisorCode.trim().toUpperCase());
   return url.toString();
 }
 
@@ -27,6 +28,7 @@ export function LoginForm() {
   const [mode, setMode] = useState<"sign-in" | "create-account">("sign-in");
   const [fullName, setFullName] = useState("");
   const [accountType, setAccountType] = useState<"agent" | "client">("agent");
+  const [advisorCode, setAdvisorCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   function getSupabase() {
@@ -47,7 +49,7 @@ export function LoginForm() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: callbackUrl(requestedRole),
+        redirectTo: callbackUrl(requestedRole, advisorCode),
       },
     });
     if (error) setMessage(error.message);
@@ -89,10 +91,11 @@ export function LoginForm() {
       email: cleanEmail,
       password,
       options: {
-        emailRedirectTo: callbackUrl(accountType),
+        emailRedirectTo: callbackUrl(accountType, advisorCode),
         data: {
           full_name: fullName.trim() || cleanEmail,
           requested_role: accountType,
+          advisor_code: accountType === "client" ? advisorCode.trim().toUpperCase() || null : null,
         },
       },
     });
@@ -189,6 +192,20 @@ export function LoginForm() {
                 <option value="client">Client - update my own planning data</option>
               </select>
             </label>
+            {accountType === "client" ? (
+              <label className="field">
+                <span className="label">Adviser referral code (optional)</span>
+                <input
+                  className="input uppercase"
+                  type="text"
+                  autoComplete="off"
+                  placeholder="Example: CFP-A1B2C3"
+                  value={advisorCode}
+                  onChange={(event) => setAdvisorCode(event.target.value.toUpperCase())}
+                />
+                <span className="text-xs text-[#68756f]">Use the private code from your adviser. Leave blank for admin assignment.</span>
+              </label>
+            ) : null}
           </>
         ) : null}
         <label className="field">

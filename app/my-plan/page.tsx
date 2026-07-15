@@ -14,6 +14,8 @@ export default async function MyPlanPage() {
     return <AppShell><EmptyState title="Database unavailable" body="This deployment is not connected to the planning database." /></AppShell>;
   }
 
+  const { data: authData } = await supabase.auth.getUser();
+
   const { data: existing } = await supabase
     .from("customers")
     .select("id")
@@ -34,6 +36,7 @@ export default async function MyPlanPage() {
         <PersonalPlanForm
           defaultName={accessDisplayName(access)}
           email={access.user.email || access.profile.email}
+          defaultAdvisorCode={String(authData.user?.user_metadata?.advisor_code || "")}
         />
       )}
     </AppShell>

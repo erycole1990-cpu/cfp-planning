@@ -19,9 +19,11 @@ function SubmitButton() {
 export function PersonalPlanForm({
   defaultName,
   email,
+  defaultAdvisorCode,
 }: {
   defaultName: string;
   email: string;
+  defaultAdvisorCode: string;
 }) {
   const [state, formAction] = useActionState(createPersonalPlan, initialState);
 
@@ -51,8 +53,8 @@ export function PersonalPlanForm({
       </label>
       <label className="field">
         <span className="label">Adviser referral code (optional)</span>
-        <input className="input uppercase" name="advisor_code" autoComplete="off" placeholder="Example: CFP-A1B2C3" />
-        <span className="text-xs text-[#68756f]">Enter the private code your adviser gave you. Leave blank for admin assignment.</span>
+        <input className="input uppercase" name="advisor_code" autoComplete="off" placeholder="Example: CFP-A1B2C3" defaultValue={defaultAdvisorCode} />
+        <span className="text-xs text-[#68756f]">Your registration code is shown here. Leave blank for admin assignment.</span>
       </label>
 
       <RiskProfileField defaultValue="moderate" openByDefault />

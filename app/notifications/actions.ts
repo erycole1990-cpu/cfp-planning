@@ -38,3 +38,46 @@ export async function markAllNotificationsRead() {
   revalidatePath("/notifications");
   revalidatePath("/");
 }
+
+export async function updateNotificationWorkflow(formData: FormData) {
+  const access = await requireCurrentAccess();
+  const id = String(formData.get("notification_id") || "");
+  const action = String(formData.get("workflow_action") || "");
+  const supabase = await createCfpServerClient();
+  if (!supabase || !id) return;
+
+  const now = new Date();
+  let update: Record<string, string | null>;
+  if (action === "resolve") {
+    update = {
+      workflow_status: "resolved",
+      resolved_at: now.toISOString(),
+      snoozed_until: null,
+      read_at: now.toISOString(),
+    };
+  } else if (action === "snooze_day" || action === "snooze_week") {
+    const days = action === "snooze_week" ? 7 : 1;
+    const snoozedUntil = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+    update = {
+      workflow_status: "snoozed",
+      snoozed_until: snoozedUntil.toISOString(),
+      resolved_at: null,
+      read_at: now.toISOString(),
+    };
+  } else {
+    update = {
+      workflow_status: "open",
+      snoozed_until: null,
+      resolved_at: null,
+    };
+  }
+
+  await supabase
+    .from("notifications")
+    .update(update)
+    .eq("id", id)
+    .eq("recipient_user_id", access.user.id);
+
+  revalidatePath("/notifications");
+  revalidatePath("/");
+}

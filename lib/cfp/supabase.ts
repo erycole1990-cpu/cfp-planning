@@ -43,6 +43,9 @@ export type Notification = {
   submission_id: string | null;
   href: string | null;
   read_at: string | null;
+  workflow_status: "open" | "snoozed" | "resolved";
+  snoozed_until: string | null;
+  resolved_at: string | null;
 };
 
 export type FinancialGoal = {

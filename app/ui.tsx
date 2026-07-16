@@ -171,3 +171,33 @@ export function EmptyState({ title, body, action }: { title: string; body: strin
     </div>
   );
 }
+
+export function Pagination({
+  page,
+  totalPages,
+  pathname,
+  query = {},
+}: {
+  page: number;
+  totalPages: number;
+  pathname: string;
+  query?: Record<string, string | undefined>;
+}) {
+  if (totalPages <= 1) return null;
+  const href = (nextPage: number) => {
+    const params = new URLSearchParams();
+    Object.entries(query).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    if (nextPage > 1) params.set("page", String(nextPage));
+    const suffix = params.toString();
+    return suffix ? `${pathname}?${suffix}` : pathname;
+  };
+  return (
+    <nav className="mt-4 flex items-center justify-between gap-3" aria-label="Pagination">
+      {page > 1 ? <Link className="btn btn-secondary" href={href(page - 1)}>Previous</Link> : <span />}
+      <span className="text-sm font-semibold text-[#68756f]">Page {page} of {totalPages}</span>
+      {page < totalPages ? <Link className="btn btn-secondary" href={href(page + 1)}>Next</Link> : <span />}
+    </nav>
+  );
+}

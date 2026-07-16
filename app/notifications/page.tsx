@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { AppShell, EmptyState, ErrorNotice, PageHeader } from "@/app/ui";
+import { AppShell, EmptyState, ErrorNotice, PageHeader, Pagination } from "@/app/ui";
 import { requireCurrentAccess } from "@/lib/cfp/access";
 import { createCfpServerClient, type Notification } from "@/lib/cfp/supabase";
-import { markAllNotificationsRead, openNotification, updateNotificationWorkflow } from "./actions";
+import { markAllNotificationsRead, openNotification, updateNotificationAccountability, updateNotificationWorkflow } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -24,23 +24,36 @@ function tabClass(active: boolean) {
   return active ? "btn" : "btn btn-secondary";
 }
 
-export default async function NotificationsPage({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
+export default async function NotificationsPage({ searchParams }: { searchParams: Promise<{ view?: string; page?: string }> }) {
   const access = await requireCurrentAccess();
   const params = await searchParams;
   const requestedView = params.view;
   const view: AlertView = requestedView === "snoozed" || requestedView === "resolved" || requestedView === "all" ? requestedView : "open";
+  const page = Math.max(1, Number.parseInt(params.page || "1", 10) || 1);
+  const pageSize = 20;
   const supabase = await createCfpServerClient();
   if (!supabase) return <AppShell><EmptyState title="Alerts unavailable" body="The planning database is not connected." /></AppShell>;
 
-  const { data, error } = await supabase
+  await supabase.rpc("cfp_escalate_my_overdue_notifications");
+  await supabase
     .from("notifications")
-    .select("*")
+    .update({ workflow_status: "open", snoozed_until: null })
     .eq("recipient_user_id", access.user.id)
-    .order("created_at", { ascending: false })
-    .limit(200);
-  const allNotifications = (data || []) as Notification[];
-  const unread = allNotifications.filter((notification) => !notification.read_at).length;
-  const notifications = allNotifications.filter((notification) => view === "all" || alertStatus(notification) === view);
+    .eq("workflow_status", "snoozed")
+    .lt("snoozed_until", new Date().toISOString());
+
+  let notificationQuery = supabase
+    .from("notifications")
+    .select("*", { count: "exact" })
+    .eq("recipient_user_id", access.user.id)
+    .order("created_at", { ascending: false });
+  if (view !== "all") notificationQuery = notificationQuery.eq("workflow_status", view);
+  const [{ data, error, count }, { count: unread }] = await Promise.all([
+    notificationQuery.range((page - 1) * pageSize, page * pageSize - 1),
+    supabase.from("notifications").select("id", { count: "exact", head: true }).eq("recipient_user_id", access.user.id).is("read_at", null),
+  ]);
+  const notifications = (data || []) as Notification[];
+  const totalPages = Math.max(1, Math.ceil((count || 0) / pageSize));
 
   return (
     <AppShell>
@@ -70,8 +83,14 @@ export default async function NotificationsPage({ searchParams }: { searchParams
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold">{notification.title}</span>
                       <span className="rounded-full bg-[#eef3ef] px-2 py-1 text-xs font-bold capitalize text-[#405047]">{status}</span>
+                      <span className={`rounded-full px-2 py-1 text-xs font-bold capitalize ${notification.priority === "urgent" ? "bg-red-100 text-red-800" : notification.priority === "high" ? "bg-amber-100 text-amber-900" : "bg-[#eef3ef] text-[#405047]"}`}>{notification.priority || "normal"}</span>
                     </div>
                     <p className="mt-1 text-sm text-[#53625b]">{notification.body}</p>
+                    {notification.due_at ? (
+                      <p className={`mt-1 text-xs font-semibold ${new Date(notification.due_at) < new Date() && status !== "resolved" ? "text-red-700" : "text-[#68756f]"}`}>
+                        {new Date(notification.due_at) < new Date() && status !== "resolved" ? "Overdue: " : "Due: "}{notificationDate(notification.due_at)}
+                      </p>
+                    ) : null}
                     {status === "snoozed" && notification.snoozed_until ? (
                       <p className="mt-1 text-xs font-semibold text-[#68756f]">Returns to Open {notificationDate(notification.snoozed_until)}</p>
                     ) : null}
@@ -114,11 +133,23 @@ export default async function NotificationsPage({ searchParams }: { searchParams
                     </form>
                   ) : null}
                 </div>
+                {status !== "resolved" ? (
+                  <details className="mt-3 rounded-md border border-[#dce2dc] p-3">
+                    <summary className="cursor-pointer text-sm font-semibold">Set priority or due date</summary>
+                    <form action={updateNotificationAccountability} className="mt-3 grid gap-3 sm:grid-cols-[12rem_14rem_auto]">
+                      <input type="hidden" name="notification_id" value={notification.id} />
+                      <label className="field"><span className="label">Priority</span><select className="input" name="priority" defaultValue={notification.priority || "normal"}><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
+                      <label className="field"><span className="label">Due date</span><input className="input" type="date" name="due_date" defaultValue={notification.due_at?.slice(0, 10) || ""} /></label>
+                      <button className="btn self-end" type="submit">Save</button>
+                    </form>
+                  </details>
+                ) : null}
               </div>
             );
           })}
         </div>
       )}
+      <Pagination page={page} totalPages={totalPages} pathname="/notifications" query={{ view: view === "open" ? undefined : view }} />
     </AppShell>
   );
 }

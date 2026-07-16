@@ -46,6 +46,9 @@ export type Notification = {
   workflow_status: "open" | "snoozed" | "resolved";
   snoozed_until: string | null;
   resolved_at: string | null;
+  priority: "low" | "normal" | "high" | "urgent";
+  due_at: string | null;
+  escalated_at: string | null;
 };
 
 export type FinancialGoal = {

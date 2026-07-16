@@ -81,3 +81,21 @@ export async function updateNotificationWorkflow(formData: FormData) {
   revalidatePath("/notifications");
   revalidatePath("/");
 }
+
+export async function updateNotificationAccountability(formData: FormData) {
+  const access = await requireCurrentAccess();
+  const id = String(formData.get("notification_id") || "");
+  const priority = String(formData.get("priority") || "normal");
+  const dueDate = String(formData.get("due_date") || "");
+  if (!id || !["low", "normal", "high", "urgent"].includes(priority)) return;
+  const supabase = await createCfpServerClient();
+  if (!supabase) return;
+  const dueAt = dueDate ? new Date(`${dueDate}T17:00:00+08:00`).toISOString() : null;
+  await supabase
+    .from("notifications")
+    .update({ priority, due_at: dueAt, escalated_at: priority === "urgent" ? new Date().toISOString() : null })
+    .eq("id", id)
+    .eq("recipient_user_id", access.user.id);
+  revalidatePath("/notifications");
+  revalidatePath("/");
+}

@@ -158,8 +158,12 @@ export async function requireCurrentAccess(options?: { skipAdminMfa?: boolean })
 
   if (access.isAdmin && !options?.skipAdminMfa) {
     const auth = await createAuthClient();
-    const { data } = await auth.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (data?.nextLevel === "aal2" && data.currentLevel !== "aal2") {
+    const [{ data: factors }, { data: assurance }] = await Promise.all([
+      auth.auth.mfa.listFactors(),
+      auth.auth.mfa.getAuthenticatorAssuranceLevel(),
+    ]);
+    const hasVerifiedTotp = (factors?.totp || []).some((factor) => factor.status === "verified");
+    if (!hasVerifiedTotp || assurance?.currentLevel !== "aal2") {
       redirect("/account/mfa");
     }
   }

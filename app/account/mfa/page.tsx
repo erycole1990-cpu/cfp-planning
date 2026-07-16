@@ -9,7 +9,7 @@ export default async function MfaChallengePage() {
 
   return (
     <AppShell>
-      <PageHeader eyebrow="Account security" title="Verify Your Sign-In" />
+      <PageHeader eyebrow="Account security" title="Authenticator Security" />
       <MfaChallenge />
     </AppShell>
   );

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AppShell, EmptyState, ErrorNotice, PageHeader } from "@/app/ui";
+import { AppShell, EmptyState, ErrorNotice, PageHeader, Pagination } from "@/app/ui";
 import { requireCurrentAccess } from "@/lib/cfp/access";
 import { auditActionLabel, auditDetails, auditEntityLabel } from "@/lib/cfp/audit";
 import { formatDate } from "@/lib/cfp/format";
@@ -17,7 +17,7 @@ type AuditRow = {
   payload: Record<string, unknown> | null;
 };
 
-export default async function AuditPage({ searchParams }: { searchParams?: Promise<{ q?: string; action?: string }> }) {
+export default async function AuditPage({ searchParams }: { searchParams?: Promise<{ q?: string; action?: string; page?: string }> }) {
   const access = await requireCurrentAccess();
   const query = (await searchParams) || {};
   if (!access.isAdmin) return <AppShell><EmptyState title="Admin access required" body="Only admins can review the agency audit record." /></AppShell>;
@@ -33,7 +33,11 @@ export default async function AuditPage({ searchParams }: { searchParams?: Promi
     if (action && row.action !== action) return false;
     if (!q) return true;
     return [row.actor, row.action, row.entity_type, row.entity_id, JSON.stringify(row.payload || {})].join(" ").toLowerCase().includes(q);
-  }).slice(0, 100);
+  });
+  const pageSize = 25;
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const page = Math.min(Math.max(1, Number.parseInt(query.page || "1", 10) || 1), totalPages);
+  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <AppShell>
@@ -50,7 +54,7 @@ export default async function AuditPage({ searchParams }: { searchParams?: Promi
           <table className="data-table">
             <thead><tr><th>Date</th><th>Person</th><th>Action</th><th>Record</th><th>Details</th></tr></thead>
             <tbody>
-              {rows.map((row) => {
+              {pageRows.map((row) => {
                 const details = auditDetails(row.action, row.payload);
                 return (
                   <tr key={row.id}>
@@ -85,7 +89,8 @@ export default async function AuditPage({ searchParams }: { searchParams?: Promi
             </tbody>
           </table>
         </div>
-        <p className="mt-3 text-sm text-[#68756f]">Showing up to 100 matching entries from the latest 250 changes.</p>
+        <Pagination page={page} totalPages={totalPages} pathname="/admin/audit" query={{ q: query.q, action: action || undefined }} />
+        <p className="mt-3 text-sm text-[#68756f]">Showing {pageRows.length} of {rows.length} matching entries from the latest 250 changes.</p>
       </section>
     </AppShell>
   );

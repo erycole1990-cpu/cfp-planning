@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, StatusBadge } from "../ui";
+import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, Pagination, StatusBadge } from "../ui";
 import { formatDate } from "@/lib/cfp/format";
 import { getCustomersData, type CustomerServiceFilter } from "@/lib/cfp/data";
 import { requireCurrentAccess } from "@/lib/cfp/access";
@@ -41,7 +41,7 @@ function matchesSearch(customer: Awaited<ReturnType<typeof getCustomersData>>["c
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ status?: string; saved?: string; q?: string }>;
+  searchParams?: Promise<{ status?: string; saved?: string; q?: string; page?: string }>;
 }) {
   const access = await requireCurrentAccess();
   if (access.isClient) redirect("/my-plan");
@@ -50,6 +50,10 @@ export default async function CustomersPage({
   const search = String(query.q ?? "").trim();
   const data = await getCustomersData(filter);
   const customers = data.customers.filter((customer) => matchesSearch(customer, search));
+  const pageSize = 20;
+  const totalPages = Math.max(1, Math.ceil(customers.length / pageSize));
+  const page = Math.min(Math.max(1, Number.parseInt(query.page || "1", 10) || 1), totalPages);
+  const pageCustomers = customers.slice((page - 1) * pageSize, page * pageSize);
   const goalsByCustomer = new Map<string, typeof data.goals>();
   for (const goal of data.goals) {
     const list = goalsByCustomer.get(goal.customer_id) ?? [];
@@ -126,51 +130,54 @@ export default async function CustomersPage({
 
       {data.configured ? (
         customers.length ? (
-          <section className="panel table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Advisor</th>
-                  <th>Risk</th>
-                  <th>Status</th>
-                  <th>Goals</th>
-                  <th>Highest concern</th>
-                  <th>Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {customers.map((customer) => {
-                  const goals = goalsByCustomer.get(customer.id) ?? [];
-                  const highestConcern =
-                    goals.find((goal) => goal.on_track_status === "off_track") ||
-                    goals.find((goal) => goal.on_track_status === "at_risk") ||
-                    goals[0];
-                  return (
-                    <tr key={customer.id}>
-                      <td>
-                        <Link className="font-bold text-[#0f766e]" href={`/customers/${customer.id}`}>
-                          {customer.full_name}
-                        </Link>
-                        <p className="mt-1 text-sm text-[#68756f]">{customer.email || "No email"}</p>
-                      </td>
-                      <td>{customer.assigned_advisor_name || "Unassigned"}</td>
-                      <td className="capitalize">{customer.risk_profile || "Not set"}</td>
-                      <td className="capitalize">
-                        {customer.service_status || "active"}
-                        {customer.service_ended_reason ? (
-                          <p className="mt-1 text-sm normal-case text-[#68756f]">{customer.service_ended_reason}</p>
-                        ) : null}
-                      </td>
-                      <td>{goals.length}</td>
-                      <td>{highestConcern ? <StatusBadge status={highestConcern.on_track_status} /> : "No goals"}</td>
-                      <td>{formatDate(customer.created_at)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </section>
+          <>
+            <section className="panel table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Advisor</th>
+                    <th>Risk</th>
+                    <th>Status</th>
+                    <th>Goals</th>
+                    <th>Highest concern</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageCustomers.map((customer) => {
+                    const goals = goalsByCustomer.get(customer.id) ?? [];
+                    const highestConcern =
+                      goals.find((goal) => goal.on_track_status === "off_track") ||
+                      goals.find((goal) => goal.on_track_status === "at_risk") ||
+                      goals[0];
+                    return (
+                      <tr key={customer.id}>
+                        <td>
+                          <Link className="font-bold text-[#0f766e]" href={`/customers/${customer.id}`}>
+                            {customer.full_name}
+                          </Link>
+                          <p className="mt-1 text-sm text-[#68756f]">{customer.email || "No email"}</p>
+                        </td>
+                        <td>{customer.assigned_advisor_name || "Unassigned"}</td>
+                        <td className="capitalize">{customer.risk_profile || "Not set"}</td>
+                        <td className="capitalize">
+                          {customer.service_status || "active"}
+                          {customer.service_ended_reason ? (
+                            <p className="mt-1 text-sm normal-case text-[#68756f]">{customer.service_ended_reason}</p>
+                          ) : null}
+                        </td>
+                        <td>{goals.length}</td>
+                        <td>{highestConcern ? <StatusBadge status={highestConcern.on_track_status} /> : "No goals"}</td>
+                        <td>{formatDate(customer.created_at)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </section>
+            <Pagination page={page} totalPages={totalPages} pathname="/customers" query={{ status: filter !== "active" ? filter : undefined, q: search || undefined }} />
+          </>
         ) : (
           <EmptyState
             title={search ? "No customers found" : emptyCopy.title}

@@ -21,6 +21,8 @@ export type Customer = {
   service_status: string | null;
   service_ended_at: string | null;
   service_ended_reason: string | null;
+  retention_review_at: string | null;
+  legal_hold: boolean;
   assigned_agent_user_id: string | null;
   requested_agent_user_id: string | null;
   advisor_request_status: "not_required" | "unassigned" | "pending" | "accepted" | "declined" | null;

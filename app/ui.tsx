@@ -84,6 +84,14 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
         ) : null}
         {children}
       </main>
+      <footer className="border-t border-[#dce2dc] bg-white">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-4 text-xs text-[#68756f] sm:px-6">
+          <span>CFP Planning workspace</span>
+          <Link className="font-semibold hover:text-[#0f766e]" href="/privacy">
+            Privacy and data rights
+          </Link>
+        </div>
+      </footer>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AppShell, EmptyState, ErrorNotice, PageHeader } from "@/app/ui";
+import { AppShell, EmptyState, ErrorNotice, PageHeader, Pagination } from "@/app/ui";
 import { requireCurrentAccess } from "@/lib/cfp/access";
 import { formatCurrency, formatDate } from "@/lib/cfp/format";
 import { createCfpServerClient, type Customer, type PendingClientSubmission } from "@/lib/cfp/supabase";
@@ -101,7 +101,7 @@ type AdvisorRequest = {
   created_at: string;
 };
 
-export default async function ReviewsPage({ searchParams }: { searchParams: Promise<{ saved?: string; referral?: string }> }) {
+export default async function ReviewsPage({ searchParams }: { searchParams: Promise<{ saved?: string; referral?: string; page?: string }> }) {
   const access = await requireCurrentAccess();
   const params = await searchParams;
   if (!access.isAdmin && !access.isAgent) {
@@ -149,6 +149,10 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
         const customer = customers.get(submission.customer_id);
         return customer?.assigned_agent_user_id === access.user.id;
       });
+  const pageSize = 15;
+  const totalPages = Math.max(1, Math.ceil(visibleSubmissions.length / pageSize));
+  const page = Math.min(Math.max(1, Number.parseInt(params.page || "1", 10) || 1), totalPages);
+  const pageSubmissions = visibleSubmissions.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <AppShell>
@@ -219,7 +223,7 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
         <EmptyState title="No updates waiting" body="Submitted personal plan changes will appear here for independent review." />
       ) : (
         <div className="grid gap-4">
-          {visibleSubmissions.map((submission) => {
+          {pageSubmissions.map((submission) => {
             const customer = customers.get(submission.customer_id);
             return (
               <article className="panel p-5" key={submission.id}>
@@ -243,6 +247,7 @@ export default async function ReviewsPage({ searchParams }: { searchParams: Prom
           })}
         </div>
       )}
+      <Pagination page={page} totalPages={totalPages} pathname="/reviews" query={{ referral: params.referral }} />
     </AppShell>
   );
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { PRIVACY_NOTICE_VERSION } from "@/lib/cfp/privacy";
 
 function callbackUrl(requestedRole?: "agent" | "client", advisorCode?: string) {
   const url = new URL("/auth/callback", window.location.origin);
@@ -29,6 +31,7 @@ export function LoginForm() {
   const [fullName, setFullName] = useState("");
   const [accountType, setAccountType] = useState<"agent" | "client">("agent");
   const [advisorCode, setAdvisorCode] = useState("");
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
 
   function getSupabase() {
@@ -87,6 +90,12 @@ export function LoginForm() {
       return;
     }
 
+    if (!privacyAccepted) {
+      setBusy(false);
+      setMessage("Please acknowledge the privacy notice before creating an account.");
+      return;
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email: cleanEmail,
       password,
@@ -96,6 +105,8 @@ export function LoginForm() {
           full_name: fullName.trim() || cleanEmail,
           requested_role: accountType,
           advisor_code: accountType === "client" ? advisorCode.trim().toUpperCase() || null : null,
+          privacy_notice_version: PRIVACY_NOTICE_VERSION,
+          privacy_accepted_at: new Date().toISOString(),
         },
       },
     });
@@ -105,6 +116,10 @@ export function LoginForm() {
       return;
     }
     if (data.session) {
+      await supabase.rpc("cfp_record_privacy_consent", {
+        p_notice_version: PRIVACY_NOTICE_VERSION,
+        p_source: "account_registration",
+      });
       window.location.assign(nextPath());
       return;
     }
@@ -231,6 +246,20 @@ export function LoginForm() {
             onChange={(event) => setPassword(event.target.value)}
           />
         </label>
+        {mode === "create-account" ? (
+          <label className="flex items-start gap-3 rounded border border-[#d8dfdb] p-3 text-sm">
+            <input
+              className="mt-1 h-4 w-4"
+              type="checkbox"
+              required
+              checked={privacyAccepted}
+              onChange={(event) => setPrivacyAccepted(event.target.checked)}
+            />
+            <span>
+              I have read the <Link className="font-bold text-[#0f766e] underline" href="/privacy">privacy and data rights notice</Link> and agree to the use of my information for financial planning and account administration.
+            </span>
+          </label>
+        ) : null}
         <button className="btn" type="submit" disabled={busy}>
           {mode === "sign-in" ? "Sign In with Password" : "Create Password Account"}
         </button>

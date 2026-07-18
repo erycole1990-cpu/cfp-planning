@@ -43,6 +43,7 @@ export async function updateSession(request: NextRequest) {
 
     const publicPath =
       pathname.startsWith("/login") ||
+      pathname.startsWith("/privacy") ||
       pathname.startsWith("/auth/callback") ||
       pathname.startsWith("/api") ||
       pathname.startsWith("/_next");

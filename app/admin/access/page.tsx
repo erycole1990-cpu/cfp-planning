@@ -154,7 +154,8 @@ export default async function AdminAccessPage({
         eyebrow="Admin control"
         title="Access and Reviews"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Link className="btn btn-secondary" href="/admin/privacy">Privacy Requests</Link>
             <Link className="btn btn-secondary" href="/admin/audit">Audit Log</Link>
             <Link className="btn btn-secondary" href="/admin/operations">Operations</Link>
             <Link className="btn btn-secondary" href="/">Dashboard</Link>

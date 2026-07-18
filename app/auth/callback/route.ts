@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { PRIVACY_NOTICE_VERSION } from "@/lib/cfp/privacy";
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
@@ -20,8 +21,15 @@ export async function GET(request: Request) {
       if (error) {
         return NextResponse.redirect(new URL(`/login?authError=${encodeURIComponent(error.message)}`, requestUrl.origin));
       }
+      const { data: userData } = await supabase.auth.getUser();
+      const acceptedVersion = userData.user?.user_metadata?.privacy_notice_version;
+      if (acceptedVersion) {
+        await supabase.rpc("cfp_record_privacy_consent", {
+          p_notice_version: String(acceptedVersion || PRIVACY_NOTICE_VERSION),
+          p_source: "account_registration",
+        });
+      }
       if (requestedRole || advisorCode) {
-        const { data: userData } = await supabase.auth.getUser();
         await supabase.auth.updateUser({
           data: {
             ...(userData.user?.user_metadata || {}),

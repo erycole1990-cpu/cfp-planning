@@ -256,7 +256,7 @@ export function LoginForm() {
               onChange={(event) => setPrivacyAccepted(event.target.checked)}
             />
             <span>
-              I have read the <Link className="font-bold text-[#0f766e] underline" href="/privacy">privacy and data rights notice</Link> and agree to the use of my information for financial planning and account administration.
+              I have read and accept the <Link className="font-bold text-[#0f766e] underline" href="/privacy">Privacy Notice</Link> and <Link className="font-bold text-[#0f766e] underline" href="/terms">Terms of Use</Link>, and consent to the processing needed to provide the requested planning service.
             </span>
           </label>
         ) : null}

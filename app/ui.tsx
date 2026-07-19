@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { statusLabel } from "@/lib/cfp/status";
 import { accessDisplayName, getCurrentAccess } from "@/lib/cfp/access";
-import { signOut } from "@/app/login/actions";
 import { createCfpServerClient } from "@/lib/cfp/supabase";
+import { NavigationShell } from "@/app/navigation-shell";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const access = await getCurrentAccess();
@@ -20,79 +20,19 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-[#dce2dc] bg-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
-          <Link href="/" className="text-lg font-bold">
-            CFP Planning
-          </Link>
-          <nav className="flex items-center gap-2 text-sm font-semibold text-[#405047]">
-            {access?.isAdmin || access?.isAgent ? (
-              <>
-                <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/">
-                  Dashboard
-                </Link>
-                <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/customers">
-                  Customers
-                </Link>
-                <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/reviews">
-                  Reviews
-                </Link>
-              </>
-            ) : null}
-            {access?.profile.status === "active" ? (
-              <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/my-plan">
-                My Plan
-              </Link>
-            ) : null}
-            <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/calculator">
-              Calculator
-            </Link>
-            {access ? (
-              <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/notifications">
-                Alerts{unreadAlerts ? ` (${unreadAlerts})` : ""}
-              </Link>
-            ) : null}
-            {access?.isAdmin ? (
-              <Link className="rounded-md px-3 py-2 hover:bg-[#eef3ef]" href="/admin/access">
-                Admin
-              </Link>
-            ) : null}
-            {access?.isAdmin || access?.isAgent ? (
-              <Link className="btn" href="/customers/new">
-                Add Customer
-              </Link>
-            ) : null}
-            {access ? (
-              <form action={signOut} className="flex items-center gap-2">
-                <Link className="hidden text-xs font-semibold text-[#68756f] hover:text-[#0f766e] md:inline" href="/profile">
-                  {access.profile.role} | {accessDisplayName(access)}
-                </Link>
-                <button className="btn btn-secondary" type="submit">
-                  Sign Out
-                </button>
-              </form>
-            ) : null}
-          </nav>
-        </div>
-      </header>
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-        {access && access.profile.status !== "active" ? (
-          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
-            Your account is waiting for admin approval. You can sign out or ask the admin to activate your role.
-          </div>
-        ) : null}
-        {children}
-      </main>
-      <footer className="border-t border-[#dce2dc] bg-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-4 text-xs text-[#68756f] sm:px-6">
-          <span>CFP Planning workspace</span>
-          <Link className="font-semibold hover:text-[#0f766e]" href="/privacy">
-            Privacy and data rights
-          </Link>
-        </div>
-      </footer>
-    </div>
+    <NavigationShell
+      access={{
+        signedIn: Boolean(access),
+        role: access?.profile.role,
+        status: access?.profile.status,
+        displayName: access ? accessDisplayName(access) : undefined,
+        unreadAlerts,
+        isAdmin: Boolean(access?.isAdmin),
+        isAgent: Boolean(access?.isAgent),
+      }}
+    >
+      {children}
+    </NavigationShell>
   );
 }
 

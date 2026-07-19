@@ -1,4 +1,4 @@
-export const PRIVACY_NOTICE_VERSION = "2026-07-16";
+export const PRIVACY_NOTICE_VERSION = "2026-07-19";
 export const RETENTION_REVIEW_YEARS = 7;
 
 export const privacyRequestLabels: Record<string, string> = {

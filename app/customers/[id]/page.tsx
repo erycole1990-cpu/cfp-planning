@@ -20,6 +20,7 @@ import { StatementImporter } from "./statement-importer";
 import { RiskProfileField } from "@/app/customers/risk-profile-field";
 import type { FinancialStatementItem } from "@/lib/cfp/supabase";
 import { GoalLifecycleActions } from "./goal-lifecycle-actions";
+import { auditActionLabel, auditDetails, auditEntityLabel } from "@/lib/cfp/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -389,20 +390,10 @@ export default async function CustomerDetailPage({
     actionsByGoal.set(action.goal_id, list);
   }
 
-  const activity = [
-    ...(data.logs ?? []).map((log) => ({
-      id: `log-${log.id}`,
-      date: log.created_at,
-      title: "Progress logged",
-      detail: `${formatCurrency(log.logged_amount)} by ${log.logged_by || "Advisor"}${log.notes ? `: ${log.notes}` : ""}`,
-    })),
-    ...(data.actions ?? []).map((action) => ({
-      id: `action-${action.id}`,
-      date: action.completed_at || action.created_at,
-      title: action.completed ? "Action completed" : "Action created",
-      detail: `${action.action_title} · ${action.assigned_to || "Unassigned"}`,
-    })),
-  ].sort((a, b) => dateTimeValue(b.date) - dateTimeValue(a.date));
+  const activity = (data.auditLogs ?? []).map((log) => ({
+    ...log,
+    details: auditDetails(log.action, log.payload),
+  }));
 
   const sortedGoals = (data.goals ?? []).slice().sort((a, b) => {
     const priorityDelta =
@@ -1200,16 +1191,35 @@ export default async function CustomerDetailPage({
           </section>
 
           <section className="panel p-5">
-            <h2 className="text-xl font-bold">Activity feed</h2>
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-xl font-bold">Customer activity</h2>
+                <p className="mt-1 text-sm text-[#68756f]">Profile, planning, assignment, and review changes in one timeline.</p>
+              </div>
+              <span className="text-sm font-semibold text-[#68756f]">Latest {Math.min(activity.length, 20)} records</span>
+            </div>
             <div className="mt-4 divide-y divide-[#dce2dc]">
-              {activity.slice(0, 10).map((item) => (
-                <div key={item.id} className="py-3">
-                  <p className="font-semibold">{item.title}</p>
-                  <p className="mt-1 text-sm text-[#68756f]">{item.detail}</p>
-                  <p className="mt-1 text-xs font-bold uppercase text-[#8a9690]">{formatDate(item.date)}</p>
-                </div>
+              {activity.slice(0, 20).map((item) => (
+                <article key={item.id} className="grid gap-2 py-4 md:grid-cols-[10rem_1fr]">
+                  <div>
+                    <p className="text-sm font-semibold">{formatDate(item.created_at)}</p>
+                    <p className="mt-1 text-xs text-[#68756f]">{item.actor || "System"}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold">{auditActionLabel(item.action)}</p>
+                    <p className="mt-1 text-xs font-bold uppercase text-[#68756f]">{auditEntityLabel(item.entity_type)}</p>
+                    <dl className="mt-2 grid gap-x-5 gap-y-2 sm:grid-cols-2">
+                      {item.details.map((detail) => (
+                        <div key={`${item.id}-${detail.label}`}>
+                          <dt className="text-xs font-bold uppercase text-[#68756f]">{detail.label}</dt>
+                          <dd className={`mt-0.5 text-sm ${detail.tone === "danger" ? "text-red-700" : detail.tone === "warning" ? "text-amber-700" : detail.tone === "success" ? "text-emerald-700" : ""}`}>{detail.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                </article>
               ))}
-              {!activity.length ? <p className="text-sm text-[#68756f]">Progress logs and actions will appear here.</p> : null}
+              {!activity.length ? <p className="py-4 text-sm text-[#68756f]">Customer changes will appear here after the activity migration is applied.</p> : null}
             </div>
           </section>
         </div>

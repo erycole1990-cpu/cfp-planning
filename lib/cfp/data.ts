@@ -20,6 +20,17 @@ export type DashboardData = {
   error?: string;
 };
 
+export type CustomerAuditLog = {
+  id: string;
+  created_at: string;
+  actor: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  customer_id: string | null;
+  payload: Record<string, unknown> | null;
+};
+
 const inactiveServiceStatuses = new Set(["inactive", "ended", "no longer servicing", "no_longer_servicing"]);
 
 function isInactiveCustomer(customer: Pick<Customer, "service_status">) {
@@ -129,12 +140,13 @@ export async function getCustomerDetail(id: string) {
   const supabase = await createCfpServerClient();
   if (!supabase) return { configured: false };
 
-  const [customerResult, goalsResult, actionsResult, statementsResult, submissionsResult] = await Promise.all([
+  const [customerResult, goalsResult, actionsResult, statementsResult, submissionsResult, auditResult] = await Promise.all([
     supabase.from("customers").select("*").eq("id", id).single(),
     supabase.from("financial_goals").select("*").eq("customer_id", id).order("target_date"),
     supabase.from("next_step_actions").select("*").eq("customer_id", id).order("due_date", { ascending: true }),
     supabase.from("financial_statement_items").select("*").eq("customer_id", id).order("created_at", { ascending: true }),
     supabase.from("pending_client_submissions").select("*").eq("customer_id", id).order("created_at", { ascending: false }),
+    supabase.from("audit_logs").select("*").eq("customer_id", id).order("created_at", { ascending: false }).limit(50),
   ]);
   const customer = customerResult.data as Customer | null;
   if (customer && !canAccessCustomer(access, customer)) {
@@ -161,6 +173,7 @@ export async function getCustomerDetail(id: string) {
     actions: (actionsResult.data ?? []) as NextStepAction[],
     statementItems: (statementsResult.data ?? []) as FinancialStatementItem[],
     pendingSubmissions: (submissionsResult.data ?? []) as PendingClientSubmission[],
+    auditLogs: (auditResult.data ?? []) as CustomerAuditLog[],
     latestLogsByGoal,
     error:
       customerResult.error?.message ||
@@ -168,7 +181,8 @@ export async function getCustomerDetail(id: string) {
       logsResult.error?.message ||
       actionsResult.error?.message ||
       statementsResult.error?.message ||
-      submissionsResult.error?.message,
+      submissionsResult.error?.message ||
+      auditResult.error?.message,
   };
 }
 

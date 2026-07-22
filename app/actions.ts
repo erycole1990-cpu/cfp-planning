@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { calculateOnTrackStatus } from "@/lib/cfp/status";
+import { evaluateGoalHealth } from "@/lib/cfp/status";
 import { createCfpServerClient, type Customer } from "@/lib/cfp/supabase";
 import { accessDisplayName, canAccessCustomer, getCurrentAccess, isPersonalCustomer, requireCurrentAccess } from "@/lib/cfp/access";
 import { createClient as createSessionSupabaseClient } from "@/lib/supabase/server";
@@ -562,12 +562,18 @@ export async function createGoal(formData: FormData) {
     priority: requiredText(formData, "priority"),
     status: "active",
   };
-  const on_track_status = calculateOnTrackStatus({
+  const health = evaluateGoalHealth({
     currentAmount: payload.current_amount,
     targetAmount: payload.target_amount,
     createdAt: new Date(),
     targetDate: payload.target_date,
   });
+  const healthFields = {
+    on_track_status: health.status,
+    health_score: health.score,
+    health_reasons: health.reasons,
+    health_evaluated_at: new Date().toISOString(),
+  };
 
   if (requiresIndependentReview(access, customer)) {
     const { error: submissionError } = await supabase.from("pending_client_submissions").insert({
@@ -585,7 +591,7 @@ export async function createGoal(formData: FormData) {
 
   const { data, error } = await supabase
     .from("financial_goals")
-    .insert({ ...payload, on_track_status })
+    .insert({ ...payload, ...healthFields })
     .select("id")
     .single();
   if (error) throw new Error(error.message);
@@ -595,7 +601,7 @@ export async function createGoal(formData: FormData) {
     action: "goal_created",
     entityType: "financial_goals",
     entityId: data.id,
-    payload: { ...payload, on_track_status },
+    payload: { ...payload, ...healthFields },
   });
 
   revalidatePath("/");
@@ -784,7 +790,7 @@ export async function applyCalculatedGoalNumber(formData: FormData) {
     .single();
   if (goalError) throw new Error(goalError.message);
 
-  const onTrackStatus = calculateOnTrackStatus({
+  const health = evaluateGoalHealth({
     currentAmount: Number(goal.current_amount),
     targetAmount,
     createdAt: goal.created_at,
@@ -795,7 +801,10 @@ export async function applyCalculatedGoalNumber(formData: FormData) {
     .from("financial_goals")
     .update({
       target_amount: targetAmount,
-      on_track_status: onTrackStatus,
+      on_track_status: health.status,
+      health_score: health.score,
+      health_reasons: health.reasons,
+      health_evaluated_at: new Date().toISOString(),
     })
     .eq("id", goalId)
     .eq("customer_id", customerId);
@@ -810,7 +819,9 @@ export async function applyCalculatedGoalNumber(formData: FormData) {
       previous_target_amount: goal.target_amount,
       target_amount: targetAmount,
       previous_on_track_status: goal.on_track_status,
-      on_track_status: onTrackStatus,
+      on_track_status: health.status,
+      health_score: health.score,
+      health_reasons: health.reasons,
       calculation: {
         today_cost: numberValue(formData, "today_cost"),
         years_to_goal: numberValue(formData, "years_to_goal"),
@@ -864,7 +875,7 @@ export async function logProgress(formData: FormData) {
     redirect(`/customers/${customerId}?saved=pending#goal-${goalId}`);
   }
 
-  const onTrackStatus = calculateOnTrackStatus({
+  const health = evaluateGoalHealth({
     currentAmount: loggedAmount,
     targetAmount: Number(goal.target_amount),
     createdAt: goal.created_at,
@@ -878,7 +889,7 @@ export async function logProgress(formData: FormData) {
       logged_amount: loggedAmount,
       logged_by: loggedBy,
       notes: text(formData, "notes"),
-      on_track_status: onTrackStatus,
+      on_track_status: health.status,
     })
     .select("id")
     .single();
@@ -886,7 +897,13 @@ export async function logProgress(formData: FormData) {
 
   const { error: updateError } = await supabase
     .from("financial_goals")
-    .update({ current_amount: loggedAmount, on_track_status: onTrackStatus })
+    .update({
+      current_amount: loggedAmount,
+      on_track_status: health.status,
+      health_score: health.score,
+      health_reasons: health.reasons,
+      health_evaluated_at: new Date().toISOString(),
+    })
     .eq("id", goalId);
   if (updateError) throw new Error(updateError.message);
 
@@ -899,7 +916,9 @@ export async function logProgress(formData: FormData) {
       goal_id: goalId,
       logged_amount: loggedAmount,
       previous_status: goal.on_track_status,
-      on_track_status: onTrackStatus,
+      on_track_status: health.status,
+      health_score: health.score,
+      health_reasons: health.reasons,
     },
   });
 

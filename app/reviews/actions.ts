@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { accessDisplayName, requireCurrentAccess } from "@/lib/cfp/access";
 import { createCfpServerClient, type Customer, type PendingClientSubmission } from "@/lib/cfp/supabase";
-import { calculateOnTrackStatus } from "@/lib/cfp/status";
+import { evaluateGoalHealth } from "@/lib/cfp/status";
 
 function text(formData: FormData, key: string) {
   const value = String(formData.get(key) ?? "").trim();
@@ -94,7 +94,7 @@ export async function reviewPersonalSubmission(formData: FormData) {
         .single();
       if (goalError) throw new Error(goalError.message);
 
-      const onTrackStatus = calculateOnTrackStatus({
+      const health = evaluateGoalHealth({
         currentAmount: loggedAmount,
         targetAmount: Number(goal.target_amount),
         createdAt: goal.created_at,
@@ -105,12 +105,18 @@ export async function reviewPersonalSubmission(formData: FormData) {
         logged_amount: loggedAmount,
         logged_by: "Personal update approved by " + accessDisplayName(access),
         notes: String(payload.notes || "") || null,
-        on_track_status: onTrackStatus,
+        on_track_status: health.status,
       });
       if (logError) throw new Error(logError.message);
       const { error: goalUpdateError } = await supabase
         .from("financial_goals")
-        .update({ current_amount: loggedAmount, on_track_status: onTrackStatus })
+        .update({
+          current_amount: loggedAmount,
+          on_track_status: health.status,
+          health_score: health.score,
+          health_reasons: health.reasons,
+          health_evaluated_at: new Date().toISOString(),
+        })
         .eq("id", goalId);
       if (goalUpdateError) throw new Error(goalUpdateError.message);
     } else if (submission.submission_type === "customer_profile_update") {
@@ -150,13 +156,19 @@ export async function reviewPersonalSubmission(formData: FormData) {
         priority: String(payload.priority || "medium"),
         status: "active",
       };
-      const onTrackStatus = calculateOnTrackStatus({
+      const health = evaluateGoalHealth({
         currentAmount,
         targetAmount,
         createdAt: new Date(),
         targetDate,
       });
-      const { error } = await supabase.from("financial_goals").insert({ ...goalPayload, on_track_status: onTrackStatus });
+      const { error } = await supabase.from("financial_goals").insert({
+        ...goalPayload,
+        on_track_status: health.status,
+        health_score: health.score,
+        health_reasons: health.reasons,
+        health_evaluated_at: new Date().toISOString(),
+      });
       if (error) throw new Error(error.message);
     } else {
       throw new Error("This submission type is not supported.");

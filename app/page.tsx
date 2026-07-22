@@ -5,6 +5,7 @@ import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge
 import { formatCurrency, formatDate } from "@/lib/cfp/format";
 import { getDashboardData } from "@/lib/cfp/data";
 import { requireCurrentAccess } from "@/lib/cfp/access";
+import { evaluateGoalHealth } from "@/lib/cfp/status";
 
 export const dynamic = "force-dynamic";
 
@@ -157,6 +158,14 @@ export default async function Home({
                     <tbody>
                       {goals.map((goal) => {
                         const latestLog = data.latestLogsByGoal[goal.id];
+                        const calculatedHealth = evaluateGoalHealth({
+                          currentAmount: Number(goal.current_amount),
+                          targetAmount: Number(goal.target_amount),
+                          createdAt: goal.created_at,
+                          targetDate: goal.target_date,
+                        });
+                        const healthScore = goal.health_score ?? calculatedHealth.score;
+                        const healthReasons = goal.health_reasons?.length ? goal.health_reasons : calculatedHealth.reasons;
                         return (
                           <tr key={goal.id}>
                             <td>
@@ -173,6 +182,10 @@ export default async function Home({
                             </td>
                             <td>
                               <StatusBadge status={goal.on_track_status} />
+                              {healthScore !== null ? (
+                                <p className="mt-2 text-xs font-bold text-[#405047]">Health {healthScore}/100</p>
+                              ) : null}
+                              <p className="mt-1 max-w-52 text-xs text-[#68756f]">{healthReasons[0]}</p>
                             </td>
                             <td>
                               <span className="font-semibold">{formatCurrency(goal.current_amount)}</span>

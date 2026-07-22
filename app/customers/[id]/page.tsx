@@ -21,6 +21,7 @@ import { RiskProfileField } from "@/app/customers/risk-profile-field";
 import type { FinancialStatementItem } from "@/lib/cfp/supabase";
 import { GoalLifecycleActions } from "./goal-lifecycle-actions";
 import { auditActionLabel, auditDetails, auditEntityLabel } from "@/lib/cfp/audit";
+import { evaluateGoalHealth } from "@/lib/cfp/status";
 
 export const dynamic = "force-dynamic";
 
@@ -881,6 +882,14 @@ export default async function CustomerDetailPage({
                 <div className="mt-4 space-y-3">
                   {priorityGoals.map((goal, index) => {
                     const percent = progressPercent(goal.current_amount, goal.target_amount);
+                    const calculatedHealth = evaluateGoalHealth({
+                      currentAmount: Number(goal.current_amount),
+                      targetAmount: Number(goal.target_amount),
+                      createdAt: goal.created_at,
+                      targetDate: goal.target_date,
+                    });
+                    const healthScore = goal.health_score ?? calculatedHealth.score;
+                    const healthReasons = goal.health_reasons?.length ? goal.health_reasons : calculatedHealth.reasons;
                     const canMoveUp = goal.priority !== "high";
                     const canMoveDown = goal.priority !== "low";
                     return (
@@ -899,6 +908,10 @@ export default async function CustomerDetailPage({
                             </div>
                             <p className="mt-1 text-sm text-[#68756f]">
                               {goal.goal_type} - target {formatCurrency(goal.target_amount)} by {formatDate(goal.target_date)}
+                            </p>
+                            <p className="mt-2 text-sm text-[#405047]">
+                              {healthScore !== null ? <span className="font-bold">Health {healthScore}/100: </span> : null}
+                              {healthReasons[0]}
                             </p>
                             <div className="mt-3">
                               <div className="mb-1 flex items-center justify-between text-sm">
@@ -977,6 +990,14 @@ export default async function CustomerDetailPage({
                 const openGoalActions = goalActions.filter((action) => !action.completed);
                 const completedGoalActions = goalActions.filter((action) => action.completed);
                 const percent = progressPercent(goal.current_amount, goal.target_amount);
+                const calculatedHealth = evaluateGoalHealth({
+                  currentAmount: Number(goal.current_amount),
+                  targetAmount: Number(goal.target_amount),
+                  createdAt: goal.created_at,
+                  targetDate: goal.target_date,
+                });
+                const healthScore = goal.health_score ?? calculatedHealth.score;
+                const healthReasons = goal.health_reasons?.length ? goal.health_reasons : calculatedHealth.reasons;
                 const canDelete = !(data.logs ?? []).some((log) => log.goal_id === goal.id) && goalActions.length === 0;
                 return (
                   <details id={`goal-${goal.id}`} key={goal.id} className="panel scroll-mt-24" open={goal.id === focusedGoalId}>
@@ -990,6 +1011,10 @@ export default async function CustomerDetailPage({
                           </div>
                           <p className="mt-2 text-sm text-[#68756f]">
                             {goal.goal_type} - {formatCurrency(goal.current_amount)} of {formatCurrency(goal.target_amount)} - target {formatDate(goal.target_date)}
+                          </p>
+                          <p className="mt-2 text-sm text-[#405047]">
+                            {healthScore !== null ? <span className="font-bold">Health {healthScore}/100: </span> : null}
+                            {healthReasons.join(" ")}
                           </p>
                           <div className="mt-3 max-w-xl">
                             <div className="mb-1 flex items-center justify-between text-sm">

@@ -85,6 +85,9 @@ export type FinancialGoal = {
   priority: string;
   status: string;
   on_track_status: string;
+  health_score?: number | null;
+  health_reasons?: string[] | null;
+  health_evaluated_at?: string | null;
 };
 
 export type GoalProgressLog = {

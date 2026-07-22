@@ -24,7 +24,7 @@ function tabClass(active: boolean) {
   return active ? "btn" : "btn btn-secondary";
 }
 
-export default async function NotificationsPage({ searchParams }: { searchParams: Promise<{ view?: string; page?: string }> }) {
+export default async function NotificationsPage({ searchParams }: { searchParams: Promise<{ view?: string; page?: string; task?: string }> }) {
   const access = await requireCurrentAccess();
   const params = await searchParams;
   const requestedView = params.view;
@@ -41,6 +41,37 @@ export default async function NotificationsPage({ searchParams }: { searchParams
     .eq("recipient_user_id", access.user.id)
     .eq("workflow_status", "snoozed")
     .lt("snoozed_until", new Date().toISOString());
+
+  const { data: reviewAlerts } = await supabase
+    .from("notifications")
+    .select("id,submission_id")
+    .eq("recipient_user_id", access.user.id)
+    .eq("notification_type", "submission_received")
+    .neq("workflow_status", "resolved")
+    .not("submission_id", "is", null);
+  const submissionIds = [...new Set((reviewAlerts || []).map((alert) => alert.submission_id).filter(Boolean))] as string[];
+  if (submissionIds.length) {
+    const { data: submissions, error: submissionsError } = await supabase
+      .from("pending_client_submissions")
+      .select("id,review_status")
+      .in("id", submissionIds);
+    if (!submissionsError) {
+      const pendingSubmissionIds = new Set(
+        (submissions || []).filter((submission) => submission.review_status === "pending").map((submission) => submission.id),
+      );
+      const staleAlertIds = (reviewAlerts || [])
+        .filter((alert) => alert.submission_id && !pendingSubmissionIds.has(alert.submission_id))
+        .map((alert) => alert.id);
+      if (staleAlertIds.length) {
+        const now = new Date().toISOString();
+        await supabase
+          .from("notifications")
+          .update({ workflow_status: "resolved", resolved_at: now, snoozed_until: null, read_at: now })
+          .eq("recipient_user_id", access.user.id)
+          .in("id", staleAlertIds);
+      }
+    }
+  }
 
   let notificationQuery = supabase
     .from("notifications")
@@ -62,6 +93,11 @@ export default async function NotificationsPage({ searchParams }: { searchParams
         title="Alerts"
         actions={unread ? <form action={markAllNotificationsRead}><button className="btn btn-secondary" type="submit">Mark all read</button></form> : null}
       />
+      {params.task === "completed" ? (
+        <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+          This review was already completed, so its alert has been moved to Resolved.
+        </div>
+      ) : null}
       <div className="mb-4 flex flex-wrap gap-2">
         <Link className={tabClass(view === "open")} href="/notifications">Open</Link>
         <Link className={tabClass(view === "snoozed")} href="/notifications?view=snoozed">Snoozed</Link>

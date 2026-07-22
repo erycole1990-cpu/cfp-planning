@@ -175,16 +175,29 @@ export async function reviewPersonalSubmission(formData: FormData) {
     }
   }
 
+  const reviewedAt = new Date().toISOString();
   const { error: reviewError } = await supabase
     .from("pending_client_submissions")
     .update({
       review_status: decision,
       review_notes: reviewNotes,
       reviewed_by_user_id: access.user.id,
-      reviewed_at: new Date().toISOString(),
+      reviewed_at: reviewedAt,
     })
     .eq("id", submission.id);
   if (reviewError) throw new Error(reviewError.message);
+
+  await supabase
+    .from("notifications")
+    .update({
+      workflow_status: "resolved",
+      resolved_at: reviewedAt,
+      snoozed_until: null,
+      read_at: reviewedAt,
+    })
+    .eq("recipient_user_id", access.user.id)
+    .eq("notification_type", "submission_received")
+    .eq("submission_id", submission.id);
 
   await supabase.from("audit_logs").insert({
     user_id: access.user.id,
@@ -202,6 +215,7 @@ export async function reviewPersonalSubmission(formData: FormData) {
 
   revalidatePath("/");
   revalidatePath("/reviews");
+  revalidatePath("/notifications");
   revalidatePath(`/customers/${customer.id}`);
   redirect(`/reviews?saved=${decision}`);
 }

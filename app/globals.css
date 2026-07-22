@@ -132,3 +132,36 @@ textarea {
 .data-table tr:last-child td {
   border-bottom: 0;
 }
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  main,
+  main > div {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .panel {
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+
+  .table-wrap {
+    overflow: visible;
+  }
+
+  .data-table {
+    min-width: 0;
+  }
+}

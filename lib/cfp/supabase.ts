@@ -2,6 +2,7 @@ import { createClient as createServerSupabaseClient } from "@/lib/supabase/serve
 
 export type Customer = {
   id: string;
+  agency_id: string | null;
   created_at: string;
   full_name: string;
   email: string | null;
@@ -31,6 +32,25 @@ export type Customer = {
   risk_profile: string | null;
   assigned_advisor_name: string | null;
   notes: string | null;
+};
+
+export type CfpPlanDocument = {
+  id: string;
+  agency_id: string;
+  customer_id: string;
+  version_number: number;
+  title: string;
+  status: "draft" | "in_review" | "approved" | "rejected" | "superseded";
+  snapshot: Record<string, unknown>;
+  created_by: string | null;
+  created_by_name: string;
+  submitted_at: string | null;
+  reviewed_by: string | null;
+  reviewed_by_name: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Notification = {

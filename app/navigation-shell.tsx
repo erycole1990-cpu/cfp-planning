@@ -227,7 +227,7 @@ export function NavigationShell({
   return (
     <div className="min-h-screen bg-[#f7f8f5] lg:flex">
       <aside
-        className={`sticky top-0 hidden h-screen shrink-0 border-r border-[#dce2dc] bg-white transition-[width] duration-200 lg:flex lg:flex-col ${
+        className={`no-print sticky top-0 hidden h-screen shrink-0 border-r border-[#dce2dc] bg-white transition-[width] duration-200 lg:flex lg:flex-col ${
           compact ? "w-[76px]" : "w-64"
         }`}
       >
@@ -244,7 +244,7 @@ export function NavigationShell({
       </aside>
 
       {mobileOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
+        <div className="no-print fixed inset-0 z-50 lg:hidden">
           <button className="absolute inset-0 bg-black/35" type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />
           <aside className="relative flex h-full w-[min(86vw,320px)] flex-col bg-white shadow-xl">
             <button
@@ -261,7 +261,7 @@ export function NavigationShell({
       ) : null}
 
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-[#dce2dc] bg-white/95 backdrop-blur lg:hidden">
+        <header className="no-print sticky top-0 z-30 border-b border-[#dce2dc] bg-white/95 backdrop-blur lg:hidden">
           <div className="flex h-16 items-center justify-between gap-3 px-4">
             <button
               className="flex h-10 w-10 items-center justify-center rounded-md border border-[#dce2dc] hover:bg-[#eef3ef]"
@@ -291,7 +291,7 @@ export function NavigationShell({
             {children}
           </div>
         </main>
-        <footer className="border-t border-[#dce2dc] bg-white">
+        <footer className="no-print border-t border-[#dce2dc] bg-white">
           <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-4 text-xs text-[#68756f] sm:px-6">
             <span>CFP Planning workspace</span>
             <div className="flex gap-4">

@@ -1007,3 +1007,171 @@ export async function completeNextStepAction(formData: FormData) {
   if (goalId) revalidatePath(`/customers/${customerId}/goals/${goalId}`);
   redirect(`/customers/${customerId}?saved=completed${goalId ? `#goal-${goalId}` : ""}`);
 }
+
+function monthlyEquivalent(amountInput: unknown, frequencyInput: unknown) {
+  const amount = Number(amountInput) || 0;
+  const frequency = String(frequencyInput || "monthly");
+  if (frequency === "weekly") return (amount * 52) / 12;
+  if (frequency === "quarterly") return amount / 3;
+  if (frequency === "annual") return amount / 12;
+  if (frequency === "one_time") return 0;
+  return amount;
+}
+
+export async function createPlanDraft(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if ((!access.isAdmin && !access.isAgent) || requiresIndependentReview(access, customer)) {
+    throw new Error("Only the assigned adviser or an admin can create an official plan draft.");
+  }
+  if (!customer.agency_id) throw new Error("This customer is not connected to an agency yet.");
+
+  const [goalsResult, statementsResult, actionsResult, latestResult] = await Promise.all([
+    supabase.from("financial_goals").select("*").eq("customer_id", customerId).order("created_at", { ascending: true }),
+    supabase.from("financial_statement_items").select("*").eq("customer_id", customerId).order("statement_date", { ascending: false }),
+    supabase.from("next_step_actions").select("*").eq("customer_id", customerId).order("created_at", { ascending: false }),
+    supabase.from("cfp_plan_documents").select("version_number").eq("customer_id", customerId).order("version_number", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  const queryError = goalsResult.error || statementsResult.error || actionsResult.error || latestResult.error;
+  if (queryError) throw new Error(queryError.message);
+
+  const goals = goalsResult.data || [];
+  const statements = statementsResult.data || [];
+  const nextActions = actionsResult.data || [];
+  const balanceItems = statements.filter((item) => item.statement_type === "balance_sheet");
+  const cashFlowItems = statements.filter((item) => item.statement_type === "cash_flow");
+  const assets = balanceItems.filter((item) => item.item_type === "asset").reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const liabilities = balanceItems.filter((item) => item.item_type === "liability").reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const monthlyIncome = cashFlowItems
+    .filter((item) => item.item_type === "income")
+    .reduce((sum, item) => sum + monthlyEquivalent(item.amount, item.frequency), 0);
+  const monthlyExpenses = cashFlowItems
+    .filter((item) => item.item_type === "expense")
+    .reduce((sum, item) => sum + monthlyEquivalent(item.amount, item.frequency), 0);
+  const versionNumber = Number(latestResult.data?.version_number || 0) + 1;
+  const title = text(formData, "title") || `${customer.full_name} CFP Plan`;
+  const snapshot = {
+    generated_at: new Date().toISOString(),
+    customer,
+    goals,
+    statements,
+    next_actions: nextActions,
+    summary: {
+      total_assets: assets,
+      total_liabilities: liabilities,
+      net_worth: assets - liabilities,
+      monthly_income: monthlyIncome,
+      monthly_expenses: monthlyExpenses,
+      monthly_surplus: monthlyIncome - monthlyExpenses,
+    },
+  };
+
+  const { data: document, error } = await supabase
+    .from("cfp_plan_documents")
+    .insert({
+      agency_id: customer.agency_id,
+      customer_id: customerId,
+      version_number: versionNumber,
+      title,
+      snapshot,
+      created_by: access.user.id,
+      created_by_name: accessDisplayName(access),
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: "plan_draft_created",
+    entityType: "cfp_plan_documents",
+    entityId: document.id,
+    payload: { customer_id: customerId, customer_name: customer.full_name, version_number: versionNumber, title },
+  });
+  revalidatePath(`/customers/${customerId}/plan`);
+  redirect(`/customers/${customerId}/plan?document=${document.id}&notice=created`);
+}
+
+export async function submitPlanForReview(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const documentId = requiredText(formData, "document_id");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if ((!access.isAdmin && !access.isAgent) || requiresIndependentReview(access, customer)) {
+    throw new Error("Only the assigned adviser or an admin can submit this plan.");
+  }
+  const { data: document, error: readError } = await supabase
+    .from("cfp_plan_documents")
+    .select("status,version_number,title")
+    .eq("id", documentId)
+    .eq("customer_id", customerId)
+    .single();
+  if (readError) throw new Error(readError.message);
+  if (!document || !["draft", "rejected"].includes(document.status)) throw new Error("Only a draft or rejected plan can be submitted.");
+
+  const { error } = await supabase
+    .from("cfp_plan_documents")
+    .update({ status: "in_review", submitted_at: new Date().toISOString(), reviewed_by: null, reviewed_by_name: null, reviewed_at: null, review_notes: null })
+    .eq("id", documentId);
+  if (error) throw new Error(error.message);
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: "plan_submitted_for_review",
+    entityType: "cfp_plan_documents",
+    entityId: documentId,
+    payload: { customer_id: customerId, version_number: document.version_number, title: document.title },
+  });
+  revalidatePath(`/customers/${customerId}/plan`);
+  redirect(`/customers/${customerId}/plan?document=${documentId}&notice=submitted`);
+}
+
+export async function reviewPlanDocument(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const documentId = requiredText(formData, "document_id");
+  const decision = requiredText(formData, "decision");
+  const notes = text(formData, "review_notes");
+  const { access } = await requireCustomerAccess(customerId);
+  if (!access.isAdmin) throw new Error("Only an admin can approve or reject an official CFP plan.");
+  if (!["approved", "rejected"].includes(decision)) throw new Error("Choose approve or reject.");
+
+  const { data: document, error: readError } = await supabase
+    .from("cfp_plan_documents")
+    .select("status,version_number,title")
+    .eq("id", documentId)
+    .eq("customer_id", customerId)
+    .single();
+  if (readError) throw new Error(readError.message);
+  if (!document || document.status !== "in_review") throw new Error("This plan is not waiting for review.");
+
+  if (decision === "approved") {
+    const { error: supersedeError } = await supabase
+      .from("cfp_plan_documents")
+      .update({ status: "superseded" })
+      .eq("customer_id", customerId)
+      .eq("status", "approved")
+      .neq("id", documentId);
+    if (supersedeError) throw new Error(supersedeError.message);
+  }
+  const { error } = await supabase
+    .from("cfp_plan_documents")
+    .update({
+      status: decision,
+      reviewed_by: access.user.id,
+      reviewed_by_name: accessDisplayName(access),
+      reviewed_at: new Date().toISOString(),
+      review_notes: notes,
+    })
+    .eq("id", documentId);
+  if (error) throw new Error(error.message);
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: `plan_${decision}`,
+    entityType: "cfp_plan_documents",
+    entityId: documentId,
+    payload: { customer_id: customerId, version_number: document.version_number, title: document.title, review_notes: notes },
+  });
+  revalidatePath(`/customers/${customerId}/plan`);
+  redirect(`/customers/${customerId}/plan?document=${documentId}&notice=${decision}`);
+}

@@ -431,6 +431,9 @@ export default async function CustomerDetailPage({
         title={customer?.full_name || "Customer"}
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link className="btn btn-secondary" href={`/customers/${id}/plan`}>
+              Plan Documents
+            </Link>
             <Link className="btn btn-secondary" href="/customers">
               Back
             </Link>

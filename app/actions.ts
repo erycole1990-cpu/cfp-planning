@@ -1041,9 +1041,7 @@ export async function createPlanDraft(formData: FormData) {
   const supabase = await requireSupabase();
   const customerId = requiredText(formData, "customer_id");
   const { access, customer } = await requireCustomerAccess(customerId);
-  if ((!access.isAdmin && !access.isAgent) || requiresIndependentReview(access, customer)) {
-    throw new Error("Only the assigned adviser or an admin can create an official plan draft.");
-  }
+  requireAssignedAdviser(access, customer);
   if (!customer.agency_id) throw new Error("This customer is not connected to an agency yet.");
 
   const [goalsResult, statementsResult, actionsResult, latestResult] = await Promise.all([
@@ -1152,7 +1150,7 @@ export async function reviewPlanDocument(formData: FormData) {
   const decision = requiredText(formData, "decision");
   const notes = text(formData, "review_notes");
   const { access } = await requireCustomerAccess(customerId);
-  if (!access.isAdmin) throw new Error("Only an admin can approve or reject an official CFP plan.");
+  if (!access.isAdmin) throw new Error("Only an admin can record a decision for a legacy plan review.");
   if (!["approved", "rejected"].includes(decision)) throw new Error("Choose approve or reject.");
 
   const { data: document, error: readError } = await supabase
@@ -1193,4 +1191,268 @@ export async function reviewPlanDocument(formData: FormData) {
   });
   revalidatePath(`/customers/${customerId}/plan`);
   redirect(`/customers/${customerId}/plan?document=${documentId}&notice=${decision}`);
+}
+
+async function currentPlanSnapshot(customerId: string, customer: Customer) {
+  const supabase = await requireSupabase();
+  const [goalsResult, statementsResult, actionsResult] = await Promise.all([
+    supabase.from("financial_goals").select("*").eq("customer_id", customerId).order("created_at", { ascending: true }),
+    supabase.from("financial_statement_items").select("*").eq("customer_id", customerId).order("statement_date", { ascending: false }),
+    supabase.from("next_step_actions").select("*").eq("customer_id", customerId).order("created_at", { ascending: false }),
+  ]);
+  const queryError = goalsResult.error || statementsResult.error || actionsResult.error;
+  if (queryError) throw new Error(queryError.message);
+
+  const goals = goalsResult.data || [];
+  const statements = statementsResult.data || [];
+  const nextActions = actionsResult.data || [];
+  const balanceItems = statements.filter((item) => item.statement_type === "balance_sheet");
+  const cashFlowItems = statements.filter((item) => item.statement_type === "cash_flow");
+  const assets = balanceItems.filter((item) => item.item_type === "asset").reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const liabilities = balanceItems.filter((item) => item.item_type === "liability").reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const monthlyIncome = cashFlowItems
+    .filter((item) => item.item_type === "income")
+    .reduce((sum, item) => sum + monthlyEquivalent(item.amount, item.frequency), 0);
+  const monthlyExpenses = cashFlowItems
+    .filter((item) => item.item_type === "expense")
+    .reduce((sum, item) => sum + monthlyEquivalent(item.amount, item.frequency), 0);
+
+  return {
+    generated_at: new Date().toISOString(),
+    customer,
+    goals,
+    statements,
+    next_actions: nextActions,
+    summary: {
+      total_assets: assets,
+      total_liabilities: liabilities,
+      net_worth: assets - liabilities,
+      monthly_income: monthlyIncome,
+      monthly_expenses: monthlyExpenses,
+      monthly_surplus: monthlyIncome - monthlyExpenses,
+    },
+  };
+}
+
+function requireAssignedAdviser(
+  access: Awaited<ReturnType<typeof requireCurrentAccess>>,
+  customer: Customer,
+) {
+  if (!access.isAgent || customer.assigned_agent_user_id !== access.user.id) {
+    throw new Error("Only the customer's assigned active adviser can issue this plan.");
+  }
+}
+
+export async function renamePlanDraft(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const documentId = requiredText(formData, "document_id");
+  const title = requiredText(formData, "title");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  requireAssignedAdviser(access, customer);
+
+  const { data, error } = await supabase
+    .from("cfp_plan_documents")
+    .update({ title })
+    .eq("id", documentId)
+    .eq("customer_id", customerId)
+    .in("status", ["draft", "rejected"])
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Only a draft or returned plan can be renamed.");
+
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: "plan_draft_renamed",
+    entityType: "cfp_plan_documents",
+    entityId: documentId,
+    payload: { customer_id: customerId, customer_name: customer.full_name, title },
+  });
+  revalidatePath(`/customers/${customerId}/plan`);
+  redirect(`/customers/${customerId}/plan?document=${documentId}&notice=renamed`);
+}
+
+export async function regeneratePlanDraft(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const documentId = requiredText(formData, "document_id");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  requireAssignedAdviser(access, customer);
+  const snapshot = await currentPlanSnapshot(customerId, customer);
+
+  const { data, error } = await supabase
+    .from("cfp_plan_documents")
+    .update({ snapshot })
+    .eq("id", documentId)
+    .eq("customer_id", customerId)
+    .in("status", ["draft", "rejected"])
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Only a draft or returned plan can be refreshed.");
+
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: "plan_draft_refreshed",
+    entityType: "cfp_plan_documents",
+    entityId: documentId,
+    payload: { customer_id: customerId, customer_name: customer.full_name },
+  });
+  revalidatePath(`/customers/${customerId}/plan`);
+  redirect(`/customers/${customerId}/plan?document=${documentId}&notice=refreshed`);
+}
+
+export async function withdrawPlanDocument(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const documentId = requiredText(formData, "document_id");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  requireAssignedAdviser(access, customer);
+
+  const { data, error } = await supabase
+    .from("cfp_plan_documents")
+    .update({ status: "withdrawn" })
+    .eq("id", documentId)
+    .eq("customer_id", customerId)
+    .in("status", ["draft", "rejected", "in_review"])
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("This plan can no longer be withdrawn.");
+
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: "plan_withdrawn",
+    entityType: "cfp_plan_documents",
+    entityId: documentId,
+    payload: { customer_id: customerId, customer_name: customer.full_name },
+  });
+  revalidatePath(`/customers/${customerId}/plan`);
+  redirect(`/customers/${customerId}/plan?document=${documentId}&notice=withdrawn`);
+}
+
+export async function finalizePlanDocument(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const documentId = requiredText(formData, "document_id");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  requireAssignedAdviser(access, customer);
+  const confirmations = [
+    "client_discussion_confirmed",
+    "assumptions_confirmed",
+    "consent_confirmed",
+    "adviser_attestation",
+  ];
+  if (confirmations.some((field) => text(formData, field) !== "confirmed")) {
+    throw new Error("Complete every adviser readiness confirmation before issuing the plan.");
+  }
+
+  const { data: document, error: readError } = await supabase
+    .from("cfp_plan_documents")
+    .select("status,version_number,title,snapshot")
+    .eq("id", documentId)
+    .eq("customer_id", customerId)
+    .single();
+  if (readError) throw new Error(readError.message);
+  if (!document || !["draft", "rejected", "in_review"].includes(document.status)) {
+    throw new Error("Only a working plan version can be issued.");
+  }
+
+  const snapshot = (document.snapshot || {}) as { goals?: unknown[]; customer?: { risk_profile?: string | null } };
+  if (!snapshot.goals?.length) throw new Error("Add at least one financial goal before issuing the plan.");
+  if (!snapshot.customer?.risk_profile) throw new Error("Complete the customer's risk profile before issuing the plan.");
+
+  const issuedAt = new Date().toISOString();
+  const { error: supersedeError } = await supabase
+    .from("cfp_plan_documents")
+    .update({ status: "superseded" })
+    .eq("customer_id", customerId)
+    .eq("status", "approved")
+    .neq("id", documentId);
+  if (supersedeError) throw new Error(supersedeError.message);
+
+  const { error } = await supabase
+    .from("cfp_plan_documents")
+    .update({
+      status: "approved",
+      finalized_by: access.user.id,
+      finalized_by_name: accessDisplayName(access),
+      finalized_at: issuedAt,
+      submitted_at: issuedAt,
+      completeness_status: "not_checked",
+      completeness_checked_by: null,
+      completeness_checked_by_name: null,
+      completeness_checked_at: null,
+      completeness_notes: null,
+    })
+    .eq("id", documentId);
+  if (error) throw new Error(error.message);
+
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: "plan_issued_by_adviser",
+    entityType: "cfp_plan_documents",
+    entityId: documentId,
+    payload: {
+      customer_id: customerId,
+      customer_name: customer.full_name,
+      version_number: document.version_number,
+      title: document.title,
+      client_discussion_confirmed: true,
+      assumptions_confirmed: true,
+      consent_confirmed: true,
+      adviser_attestation: true,
+    },
+  });
+  revalidatePath(`/customers/${customerId}/plan`);
+  revalidatePath("/admin/plans");
+  redirect(`/customers/${customerId}/plan?document=${documentId}&notice=issued`);
+}
+
+export async function recordPlanCompletenessCheck(formData: FormData) {
+  const supabase = await requireSupabase();
+  const customerId = requiredText(formData, "customer_id");
+  const documentId = requiredText(formData, "document_id");
+  const decision = requiredText(formData, "decision");
+  const notes = text(formData, "completeness_notes");
+  const { access, customer } = await requireCustomerAccess(customerId);
+  if (!access.isAdmin) throw new Error("Only an admin can record a process completeness check.");
+  if (!['complete', 'changes_requested'].includes(decision)) throw new Error("Choose a completeness result.");
+  if (decision === "changes_requested" && !notes) throw new Error("Add a note describing the missing process items.");
+
+  const checkedAt = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("cfp_plan_documents")
+    .update({
+      completeness_status: decision,
+      completeness_checked_by: access.user.id,
+      completeness_checked_by_name: accessDisplayName(access),
+      completeness_checked_at: checkedAt,
+      completeness_notes: notes,
+    })
+    .eq("id", documentId)
+    .eq("customer_id", customerId)
+    .eq("status", "approved")
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Only an issued plan can receive a completeness check.");
+
+  await writeAudit({
+    actor: accessDisplayName(access),
+    action: "plan_completeness_checked",
+    entityType: "cfp_plan_documents",
+    entityId: documentId,
+    payload: {
+      customer_id: customerId,
+      customer_name: customer.full_name,
+      result: decision,
+      notes,
+      advice_approved: false,
+    },
+  });
+  revalidatePath(`/customers/${customerId}/plan`);
+  revalidatePath("/admin/plans");
+  redirect(`/customers/${customerId}/plan?document=${documentId}&notice=completeness`);
 }

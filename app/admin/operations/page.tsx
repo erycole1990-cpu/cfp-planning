@@ -28,7 +28,7 @@ const checks = [
   {
     title: "Client-submitted changes",
     frequency: "Every working day",
-    body: "Treat client changes as pending proposals. An assigned adviser or admin reviews the original and proposed values before the official financial plan is changed.",
+    body: "Treat client changes as pending proposals. The assigned adviser reviews the original and proposed values before the official financial plan is changed. Admins intervene only for access, ownership, or process exceptions.",
   },
 ];
 

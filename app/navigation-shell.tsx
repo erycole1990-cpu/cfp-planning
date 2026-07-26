@@ -135,6 +135,7 @@ function buildNavigation(access: NavigationAccess) {
   if (access.isAdmin) {
     administration.push(
       { href: "/admin/access", label: "Access & Reviews", icon: ShieldCheck },
+      { href: "/admin/plans", label: "Plan Completeness", icon: ClipboardCheck },
       { href: "/admin/privacy", label: "Privacy & Retention", icon: Scale },
       { href: "/admin/audit", label: "Audit Log", icon: FileClock },
       { href: "/admin/operations", label: "Operations", icon: SlidersHorizontal },

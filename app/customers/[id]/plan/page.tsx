@@ -1,8 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createPlanDraft, reviewPlanDocument, submitPlanForReview } from "@/app/actions";
+import {
+  createPlanDraft,
+  finalizePlanDocument,
+  recordPlanCompletenessCheck,
+  regeneratePlanDraft,
+  renamePlanDraft,
+  withdrawPlanDocument,
+} from "@/app/actions";
 import { AppShell, EmptyState, PageHeader } from "@/app/ui";
-import { accessDisplayName, canAccessCustomer, isPersonalCustomer, requireCurrentAccess } from "@/lib/cfp/access";
+import { canAccessCustomer, isPersonalCustomer, requireCurrentAccess } from "@/lib/cfp/access";
 import { formatCurrency, formatDate } from "@/lib/cfp/format";
 import {
   createCfpServerClient,
@@ -38,10 +45,14 @@ const statusClasses: Record<CfpPlanDocument["status"], string> = {
   approved: "border-emerald-200 bg-emerald-50 text-emerald-800",
   rejected: "border-red-200 bg-red-50 text-red-800",
   superseded: "border-slate-200 bg-slate-100 text-slate-600",
+  withdrawn: "border-slate-200 bg-slate-100 text-slate-600",
 };
 
 function planStatus(status: CfpPlanDocument["status"]) {
-  return status === "in_review" ? "In review" : status.charAt(0).toUpperCase() + status.slice(1);
+  if (status === "approved") return "Issued";
+  if (status === "in_review") return "Legacy review";
+  if (status === "rejected") return "Changes requested";
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 function PlanStatusBadge({ status }: { status: CfpPlanDocument["status"] }) {
@@ -85,16 +96,33 @@ export default async function CustomerPlanPage({
   const statements = snapshot.statements || [];
   const nextActions = snapshot.next_actions || [];
   const summary = snapshot.summary || {};
-  const canDraft = (access.isAdmin || access.isAgent) && !isPersonalCustomer(access, customer as Customer);
+  const personalPlan = isPersonalCustomer(access, customer as Customer);
+  const isAssignedAdviser =
+    access.isAgent &&
+    !personalPlan &&
+    (customer as Customer).assigned_agent_user_id === access.user.id;
+  const canEditDraft =
+    isAssignedAdviser &&
+    Boolean(selected && ["draft", "rejected", "in_review"].includes(selected.status));
+  const readiness = {
+    goals: goals.length > 0,
+    risk: Boolean(planCustomer.risk_profile),
+    statements: statements.length > 0,
+    actions: nextActions.length > 0,
+  };
 
   const notice = query.notice === "created"
     ? "Draft created from the customer's current planning records."
-    : query.notice === "submitted"
-      ? "Plan submitted for administrator review."
-      : query.notice === "approved"
-        ? "Plan approved. This is now the customer's official plan version."
-        : query.notice === "rejected"
-          ? "Plan returned for revision with the review note below."
+    : query.notice === "renamed"
+      ? "Draft title updated."
+      : query.notice === "refreshed"
+        ? "Draft refreshed from the customer's latest planning records."
+        : query.notice === "withdrawn"
+          ? "Draft withdrawn. Its history remains available."
+          : query.notice === "issued"
+            ? "Plan issued by the assigned adviser."
+            : query.notice === "completeness"
+              ? "Administrative completeness check recorded."
           : null;
 
   return (
@@ -114,7 +142,7 @@ export default async function CustomerPlanPage({
 
       <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="no-print space-y-4">
-          {canDraft ? (
+          {isAssignedAdviser ? (
             <form action={createPlanDraft} className="panel p-4">
               <input type="hidden" name="customer_id" value={id} />
               <label className="field">
@@ -157,8 +185,62 @@ export default async function CustomerPlanPage({
                     <p className="text-sm font-bold uppercase text-[#68756f]">Version {selected.version_number}</p>
                     <h2 className="mt-1 text-2xl font-bold">{selected.title}</h2>
                     <p className="mt-2 text-sm text-[#68756f]">Prepared by {selected.created_by_name} on {formatDate(selected.created_at)}</p>
+                    {selected.status === "approved" ? (
+                      <p className="mt-1 text-sm text-[#53625b]">
+                        Issued by {selected.finalized_by_name || selected.created_by_name}
+                        {selected.finalized_at ? ` | ${formatDate(selected.finalized_at)}` : ""}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 break-all text-xs text-[#68756f]">Document ID: {selected.id}</p>
                   </div>
                   <PlanStatusBadge status={selected.status} />
+                </div>
+              </section>
+
+              {canEditDraft ? (
+                <section className="no-print panel p-5">
+                  <h2 className="text-xl font-bold">Draft controls</h2>
+                  <p className="mt-1 text-sm text-[#68756f]">Correct the title, refresh this version from the latest planning records, or withdraw it without deleting its history.</p>
+                  <form action={renamePlanDraft} className="mt-4 flex flex-col gap-3 sm:flex-row">
+                    <input type="hidden" name="customer_id" value={id} />
+                    <input type="hidden" name="document_id" value={selected.id} />
+                    <label className="field min-w-0 flex-1">
+                      <span className="label">Document title</span>
+                      <input className="input" name="title" defaultValue={selected.title} required />
+                    </label>
+                    <button className="btn self-end" type="submit">Rename</button>
+                  </form>
+                  <div className="mt-3 flex flex-wrap gap-3">
+                    <form action={regeneratePlanDraft}>
+                      <input type="hidden" name="customer_id" value={id} />
+                      <input type="hidden" name="document_id" value={selected.id} />
+                      <button className="btn btn-secondary" type="submit">Refresh Draft</button>
+                    </form>
+                    <form action={withdrawPlanDocument}>
+                      <input type="hidden" name="customer_id" value={id} />
+                      <input type="hidden" name="document_id" value={selected.id} />
+                      <button className="btn btn-danger" type="submit">Withdraw Draft</button>
+                    </form>
+                  </div>
+                </section>
+              ) : null}
+
+              <section className="panel p-5">
+                <h2 className="text-xl font-bold">Plan readiness</h2>
+                <p className="mt-1 text-sm text-[#68756f]">Required items must be complete before the assigned adviser can issue this version.</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className={`rounded-md border p-3 ${readiness.goals ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
+                    <strong>{readiness.goals ? "Ready" : "Missing"}: Financial goals</strong>
+                  </div>
+                  <div className={`rounded-md border p-3 ${readiness.risk ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
+                    <strong>{readiness.risk ? "Ready" : "Missing"}: Risk profile</strong>
+                  </div>
+                  <div className={`rounded-md border p-3 ${readiness.statements ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                    <strong>{readiness.statements ? "Included" : "Recommended"}: Financial statements</strong>
+                  </div>
+                  <div className={`rounded-md border p-3 ${readiness.actions ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                    <strong>{readiness.actions ? "Included" : "Recommended"}: Next-step actions</strong>
+                  </div>
                 </div>
               </section>
 
@@ -222,34 +304,96 @@ export default async function CustomerPlanPage({
 
               {selected.review_notes || selected.reviewed_by_name ? (
                 <section className="panel p-5">
-                  <h2 className="text-xl font-bold">Review record</h2>
+                  <h2 className="text-xl font-bold">Historical review record</h2>
+                  <p className="mt-1 text-sm text-[#68756f]">Preserved from the previous administrator-approval workflow for audit history.</p>
                   <p className="mt-3 text-sm"><strong>{selected.reviewed_by_name || "Reviewer"}</strong>{selected.reviewed_at ? ` · ${formatDate(selected.reviewed_at)}` : ""}</p>
                   <p className="mt-2 whitespace-pre-wrap text-[#53625b]">{selected.review_notes || "No review notes."}</p>
                 </section>
               ) : null}
 
-              {canDraft && ["draft", "rejected"].includes(selected.status) ? (
-                <form action={submitPlanForReview} className="no-print panel flex flex-wrap items-center justify-between gap-3 p-5">
+              {canEditDraft ? (
+                <form action={finalizePlanDocument} className="no-print panel p-5">
                   <input type="hidden" name="customer_id" value={id} />
                   <input type="hidden" name="document_id" value={selected.id} />
-                  <div><h2 className="font-bold">Ready for formal review?</h2><p className="mt-1 text-sm text-[#68756f]">Submitting locks this version for an administrator's decision.</p></div>
-                  <button className="btn" type="submit">Submit for Review</button>
+                  <h2 className="text-xl font-bold">Adviser issuance</h2>
+                  <p className="mt-1 text-sm text-[#68756f]">
+                    The assigned adviser owns the recommendation and confirms the client discussion,
+                    assumptions, consent, and professional responsibility before issue.
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <label className="flex items-start gap-3 rounded-md border border-[#dce2dc] p-3">
+                      <input className="mt-1" name="client_discussion_confirmed" type="checkbox" value="confirmed" required />
+                      <span>Client discussion completed</span>
+                    </label>
+                    <label className="flex items-start gap-3 rounded-md border border-[#dce2dc] p-3">
+                      <input className="mt-1" name="assumptions_confirmed" type="checkbox" value="confirmed" required />
+                      <span>Assumptions reviewed</span>
+                    </label>
+                    <label className="flex items-start gap-3 rounded-md border border-[#dce2dc] p-3">
+                      <input className="mt-1" name="consent_confirmed" type="checkbox" value="confirmed" required />
+                      <span>Client consent recorded</span>
+                    </label>
+                    <label className="flex items-start gap-3 rounded-md border border-[#dce2dc] p-3">
+                      <input className="mt-1" name="adviser_attestation" type="checkbox" value="confirmed" required />
+                      <span>I accept adviser responsibility</span>
+                    </label>
+                  </div>
+                  <button className="btn mt-4" type="submit">Issue Plan</button>
                 </form>
               ) : null}
 
-              {access.isAdmin && selected.status === "in_review" ? (
-                <form action={reviewPlanDocument} className="no-print panel p-5">
+              {access.isAdmin && selected.status === "approved" ? (
+                <form action={recordPlanCompletenessCheck} className="no-print panel p-5">
                   <input type="hidden" name="customer_id" value={id} />
                   <input type="hidden" name="document_id" value={selected.id} />
-                  <h2 className="text-xl font-bold">Administrator review</h2>
-                  <p className="mt-1 text-sm text-[#68756f]">Reviewing as {accessDisplayName(access)}. The decision and notes become part of the permanent record.</p>
-                  <label className="field mt-4"><span className="label">Review notes</span><textarea className="input min-h-28" name="review_notes" placeholder="Decision rationale, corrections, or follow-up required" /></label>
+                  <h2 className="text-xl font-bold">Administrative completeness</h2>
+                  <p className="mt-1 text-sm text-[#68756f]">
+                    This records whether required evidence is present. It does not approve, endorse,
+                    or validate the adviser&apos;s financial advice.
+                  </p>
+                  <label className="field mt-4">
+                    <span className="label">Process notes</span>
+                    <textarea
+                      className="input min-h-28"
+                      name="completeness_notes"
+                      defaultValue={selected.completeness_notes || ""}
+                      placeholder="Missing evidence or administrative observations"
+                    />
+                  </label>
                   <div className="mt-4 flex flex-wrap gap-3">
-                    <button className="btn" name="decision" value="approved" type="submit">Approve Plan</button>
-                    <button className="btn btn-danger" name="decision" value="rejected" type="submit">Return for Revision</button>
+                    <button className="btn" name="decision" value="complete" type="submit">Record Complete</button>
+                    <button className="btn btn-secondary" name="decision" value="changes_requested" type="submit">Request Missing Evidence</button>
                   </div>
                 </form>
               ) : null}
+
+              <section className="panel p-5">
+                <h2 className="text-xl font-bold">Document record</h2>
+                <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                  <div><dt className="label">Status</dt><dd className="mt-1 font-semibold">{planStatus(selected.status)}</dd></div>
+                  <div><dt className="label">Issued by</dt><dd className="mt-1 font-semibold">{selected.finalized_by_name || "Not issued"}</dd></div>
+                  <div><dt className="label">Issued date</dt><dd className="mt-1">{selected.finalized_at ? formatDate(selected.finalized_at) : "Not issued"}</dd></div>
+                  <div>
+                    <dt className="label">Process check</dt>
+                    <dd className="mt-1 font-semibold">
+                      {selected.completeness_status === "complete"
+                        ? "Complete"
+                        : selected.completeness_status === "changes_requested"
+                          ? "Changes requested"
+                          : "Not checked"}
+                    </dd>
+                  </div>
+                  <div><dt className="label">Checked by</dt><dd className="mt-1">{selected.completeness_checked_by_name || "Not checked"}</dd></div>
+                  <div><dt className="label">Checked date</dt><dd className="mt-1">{selected.completeness_checked_at ? formatDate(selected.completeness_checked_at) : "Not checked"}</dd></div>
+                </dl>
+                {selected.completeness_notes ? (
+                  <p className="mt-4 whitespace-pre-wrap rounded-md border border-[#dce2dc] p-3 text-sm text-[#53625b]">{selected.completeness_notes}</p>
+                ) : null}
+                <p className="mt-4 rounded-md bg-[#f5f7f4] p-3 text-sm text-[#53625b]">
+                  Plan advice remains the responsibility of the issuing adviser. Administrative
+                  completeness does not constitute approval of suitability or recommendations.
+                </p>
+              </section>
             </article>
           )}
         </div>

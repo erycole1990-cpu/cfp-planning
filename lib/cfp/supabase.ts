@@ -40,7 +40,7 @@ export type CfpPlanDocument = {
   customer_id: string;
   version_number: number;
   title: string;
-  status: "draft" | "in_review" | "approved" | "rejected" | "superseded";
+  status: "draft" | "in_review" | "approved" | "rejected" | "superseded" | "withdrawn";
   snapshot: Record<string, unknown>;
   created_by: string | null;
   created_by_name: string;
@@ -49,6 +49,14 @@ export type CfpPlanDocument = {
   reviewed_by_name: string | null;
   reviewed_at: string | null;
   review_notes: string | null;
+  finalized_by: string | null;
+  finalized_by_name: string | null;
+  finalized_at: string | null;
+  completeness_status: "not_checked" | "complete" | "changes_requested";
+  completeness_checked_by: string | null;
+  completeness_checked_by_name: string | null;
+  completeness_checked_at: string | null;
+  completeness_notes: string | null;
   created_at: string;
   updated_at: string;
 };

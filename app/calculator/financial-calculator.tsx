@@ -177,8 +177,8 @@ function GoalNumberCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
   }, [expectedReturn, frequency, fundingSources, inflationRate, mode, todayCost, years]);
 
   return (
-    <section className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-      <div className="panel p-5">
+    <section className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
+      <div className="panel p-4 sm:p-5">
         <h2 className="text-xl font-bold">Find the client&apos;s goal number</h2>
         {initialGoal?.goalName ? (
           <p className="mt-1 text-sm font-semibold text-[#68756f]">Loaded from goal: {initialGoal.goalName}</p>
@@ -223,7 +223,7 @@ function GoalNumberCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
         </div>
       </div>
 
-      <div className="panel p-5">
+      <div className="panel min-w-0 p-4 sm:p-5">
         <h2 className="text-xl font-bold">Planning result</h2>
         <div className="mt-4 space-y-4">
           <ResultRow label="Future goal number" value={money(result.futureGoal)} strong />
@@ -317,8 +317,8 @@ function TvmCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
   }, [annualRate, frequency, futureTarget, mode, payment, periods, presentValue, solveFor]);
 
   return (
-    <section className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-      <div className="panel p-5">
+    <section className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
+      <div className="panel p-4 sm:p-5">
         <h2 className="text-xl font-bold">Time value of money solver</h2>
         {initialGoal?.goalName ? (
           <p className="mt-1 text-sm font-semibold text-[#68756f]">Loaded from goal: {initialGoal.goalName}</p>
@@ -358,11 +358,11 @@ function TvmCalculator({ initialGoal }: { initialGoal?: InitialGoal }) {
           </label>
         </div>
       </div>
-      <div className="panel p-5">
+      <div className="panel min-w-0 p-4 sm:p-5">
         <h2 className="text-xl font-bold">TVM result</h2>
         <div className="mt-4 rounded-md border border-[#dce2dc] bg-[#f7f8f5] p-5">
           <p className="text-sm font-bold uppercase text-[#68756f]">{result.label}</p>
-          <p className="mt-2 text-3xl font-bold">{result.value}</p>
+          <p className="mt-2 break-words text-2xl font-bold sm:text-3xl">{result.value}</p>
         </div>
         <p className="mt-4 text-sm text-[#68756f]">
           Payments are treated as positive client contributions. Use beginning mode when contributions happen before each compounding period.
@@ -402,9 +402,9 @@ function CalculatorInput({
 
 function ResultRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-[#dce2dc] pb-3 last:border-b-0 last:pb-0">
+    <div className="flex min-w-0 flex-col gap-1 border-b border-[#dce2dc] pb-3 last:border-b-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
       <p className="text-sm font-bold uppercase text-[#68756f]">{label}</p>
-      <p className={`text-right ${strong ? "text-2xl font-bold text-[#115e59]" : "font-semibold"}`}>{value}</p>
+      <p className={`min-w-0 break-words sm:text-right ${strong ? "text-2xl font-bold text-[#115e59]" : "font-semibold"}`}>{value}</p>
     </div>
   );
 }

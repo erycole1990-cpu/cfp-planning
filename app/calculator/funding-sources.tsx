@@ -88,13 +88,13 @@ export function FundingSourcesEditor({
   }
 
   return (
-    <div className="rounded-md border border-[#dce2dc] p-4">
+    <div className="min-w-0 rounded-md border border-[#dce2dc] p-3 sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-bold">Funding sources</h3>
           <p className="mt-1 text-sm text-[#68756f]">Add EPF, investments, property, income streams, education funding, insurance value, or other sources.</p>
         </div>
-        <select className="input max-w-56" defaultValue="" onChange={(event) => {
+        <select className="input w-full sm:max-w-64" defaultValue="" onChange={(event) => {
           if (event.target.value) addSource(event.target.value);
           event.target.value = "";
         }}>
@@ -115,27 +115,27 @@ export function FundingSourcesEditor({
 
       <div className="mt-4 space-y-3">
         {sources.map((source) => (
-          <div key={source.id} className="grid gap-3 rounded-md bg-[#f7f8f5] p-3 lg:grid-cols-[1.1fr_0.8fr_0.7fr_1fr_auto]">
-            <label className="field">
+          <div key={source.id} className="grid min-w-0 gap-4 rounded-md bg-[#f7f8f5] p-3 sm:grid-cols-2 sm:p-4">
+            <label className="field min-w-0 sm:col-span-2">
               <span className="label">Source</span>
               <input className="input" value={source.label} onChange={(event) => updateSource(source.id, "label", event.target.value)} />
             </label>
-            <label className="field">
-              <span className="label">Amount</span>
+            <label className="field min-w-0">
+              <span className="label">Amount today</span>
               <input className="input" type="number" min="0" value={source.amount} onChange={(event) => updateSource(source.id, "amount", event.target.value)} />
             </label>
-            <label className="field">
-              <span className="label">Return (%)</span>
+            <label className="field min-w-0">
+              <span className="label">Expected return (%)</span>
               <input className="input" type="number" step="0.1" value={source.annualReturn} onChange={(event) => updateSource(source.id, "annualReturn", event.target.value)} />
             </label>
-            <label className="field">
+            <label className="field min-w-0 sm:col-span-2">
               <span className="label">Availability</span>
               <input className="input" value={source.availability} onChange={(event) => updateSource(source.id, "availability", event.target.value)} />
             </label>
-            <div className="flex items-end justify-between gap-2 lg:block">
-              <div className="pb-1 text-sm">
-                <p className="font-bold uppercase text-[#68756f]">At goal</p>
-                <p className="font-bold">{formatCurrency(sourceFutureValue(source, years))}</p>
+            <div className="flex min-w-0 flex-wrap items-end justify-between gap-3 border-t border-[#dce2dc] pt-3 sm:col-span-2">
+              <div className="min-w-0 text-sm">
+                <p className="font-bold uppercase text-[#68756f]">Projected at goal</p>
+                <p className="break-words text-lg font-bold">{formatCurrency(sourceFutureValue(source, years))}</p>
               </div>
               <button className="btn btn-secondary" type="button" onClick={() => removeSource(source.id)} disabled={sources.length === 1}>
                 Remove

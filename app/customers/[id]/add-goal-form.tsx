@@ -159,22 +159,30 @@ export function AddGoalForm({
         <p className="mt-3 text-sm text-[#68756f]">
           Current amount can reflect the total funding sources already available. Use new money return for planning future contributions.
         </p>
-        <div className="mt-4 grid gap-3 rounded-md bg-[#f7f8f5] p-4 text-sm sm:grid-cols-4">
-          <div>
+        <div className="mt-4 grid gap-3 rounded-md bg-[#f7f8f5] p-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+          <div className="min-w-0">
             <p className="font-bold uppercase text-[#68756f]">Future cost</p>
-            <p className="mt-1 text-lg font-bold">{formatCurrency(result.futureCost)}</p>
+            <p className="mt-1 break-words text-lg font-bold tabular-nums">
+              {formatCurrency(result.futureCost)}
+            </p>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="font-bold uppercase text-[#68756f]">Sources at date</p>
-            <p className="mt-1 text-lg font-bold">{formatCurrency(result.futureSavings)}</p>
+            <p className="mt-1 break-words text-lg font-bold tabular-nums">
+              {formatCurrency(result.futureSavings)}
+            </p>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="font-bold uppercase text-[#68756f]">Funding gap</p>
-            <p className="mt-1 text-lg font-bold text-[#115e59]">{formatCurrency(result.gap)}</p>
+            <p className="mt-1 break-words text-lg font-bold tabular-nums text-[#115e59]">
+              {formatCurrency(result.gap)}
+            </p>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="font-bold uppercase text-[#68756f]">Monthly needed</p>
-            <p className="mt-1 text-lg font-bold text-[#115e59]">{formatCurrency(result.monthlyContribution)}</p>
+            <p className="mt-1 break-words text-lg font-bold tabular-nums text-[#115e59]">
+              {formatCurrency(result.monthlyContribution)}
+            </p>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">

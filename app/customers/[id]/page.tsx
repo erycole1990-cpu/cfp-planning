@@ -431,7 +431,10 @@ export default async function CustomerDetailPage({
         eyebrow={customer?.assigned_advisor_name || "Customer detail"}
         title={customer?.full_name || "Customer"}
         actions={
-          <div className="flex flex-wrap gap-2">
+         <div className="flex flex-wrap gap-2">
+            <Link className="btn btn-secondary" href={`/customers/${id}/statements`}>
+              Statements &amp; Ratios
+            </Link>
             <Link className="btn btn-secondary" href={`/customers/${id}/plan`}>
               Plan Documents
             </Link>

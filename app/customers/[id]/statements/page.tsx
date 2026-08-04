@@ -31,7 +31,7 @@ const ratioLabels: Record<RatioStatus, string> = {
   good: "Good shape",
   watch: "Review",
   attention: "Needs attention",
-  insufficient: "More data needed",
+  insufficient: "Not assessed",
 };
 
 function itemDate(item: FinancialStatementItem) {
@@ -216,14 +216,16 @@ export default async function CustomerStatementsPage({
             </p>
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {ratios.map((ratio) => (
             <RatioCard key={ratio.id} ratio={ratio} />
           ))}
         </div>
         <p className="mt-3 text-sm text-[#5c6963]">
-          These benchmarks are internal planning guides. They are not a credit score, lending
-          decision, regulatory assessment, or substitute for professional judgement.
+          These benchmarks are internal planning guides based only on the data entered. They are
+          not a credit score, lending decision, regulatory assessment, or substitute for
+          professional judgement. Protection and goal funding remain unassessed until their
+          required projection data is recorded.
         </p>
       </section>
 

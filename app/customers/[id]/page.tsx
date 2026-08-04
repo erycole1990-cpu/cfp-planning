@@ -172,6 +172,33 @@ function submissionLabel(type: string) {
   }
 }
 
+const activityCategories = [
+  { value: "all", label: "All activity" },
+  { value: "profile", label: "Profile" },
+  { value: "goals", label: "Goals" },
+  { value: "statements", label: "Financial statements" },
+  { value: "reviews", label: "Reviews and plans" },
+  { value: "assignment", label: "Assignment" },
+] as const;
+
+type ActivityCategory = (typeof activityCategories)[number]["value"];
+
+function auditActivityCategory(action: string): Exclude<ActivityCategory, "all"> {
+  if (action.startsWith("goal_") || action.startsWith("progress_") || action.startsWith("action_")) return "goals";
+  if (action.startsWith("financial_statement_")) return "statements";
+  if (action.startsWith("client_submission_") || action.startsWith("plan_")) return "reviews";
+  if (action.includes("reassign") || action.startsWith("assignment_")) return "assignment";
+  return "profile";
+}
+
+function activityHref(customerId: string, category: ActivityCategory, page: number) {
+  const params = new URLSearchParams();
+  if (category !== "all") params.set("activity", category);
+  if (page > 1) params.set("activityPage", String(page));
+  const search = params.toString();
+  return `/customers/${customerId}${search ? `?${search}` : ""}#customer-activity`;
+}
+
 function StatementSection({
   title,
   summary,
@@ -209,16 +236,12 @@ function StatementSection({
 
       <form
         action={createFinancialStatementItem}
-        className={`mt-4 grid gap-3 ${
-          showDate
-            ? "lg:grid-cols-[0.8fr_1fr_1.2fr_0.75fr_0.85fr_0.85fr_auto]"
-            : "lg:grid-cols-[0.8fr_1fr_1.3fr_0.8fr_0.8fr_auto]"
-        }`}
+        className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
       >
         <input type="hidden" name="customer_id" value={customerId} />
         <input type="hidden" name="actor" value={actor} />
         <input type="hidden" name="statement_type" value={statementType} />
-        <label className="field">
+        <label className="field min-w-0">
           <span className="label">Type</span>
           <select className="input" name="item_type" required>
             {itemTypes.map((type) => (
@@ -228,7 +251,7 @@ function StatementSection({
             ))}
           </select>
         </label>
-        <label className="field">
+        <label className="field min-w-0">
           <span className="label">Category</span>
           <select className="input" name="category" defaultValue={categories[0] || ""}>
             {categories.map((category) => (
@@ -236,21 +259,21 @@ function StatementSection({
             ))}
           </select>
         </label>
-        <label className="field">
+        <label className="field min-w-0 sm:col-span-2">
           <span className="label">Description</span>
           <input className="input" name="description" required placeholder="Example: EPF, housing loan, salary, rent" />
         </label>
-        <label className="field">
+        <label className="field min-w-0">
           <span className="label">Amount</span>
           <input className="input" name="amount" required min="0" step="0.01" type="number" />
         </label>
         {showDate ? (
-          <label className="field">
+          <label className="field min-w-0">
             <span className="label">{dateLabel}</span>
             <input className="input" name="statement_date" type="date" defaultValue={toDateInputValue(new Date())} />
           </label>
         ) : null}
-        <label className="field">
+        <label className="field min-w-0">
           <span className="label">Frequency</span>
           <select className="input" name="frequency" defaultValue={showFrequency ? "monthly" : "current"}>
             {showFrequency ? (
@@ -266,7 +289,7 @@ function StatementSection({
             )}
           </select>
         </label>
-        <div className="flex items-end">
+        <div className="flex items-end sm:col-span-2 xl:col-span-1">
           <button className="btn w-full" type="submit">
             Add
           </button>
@@ -368,7 +391,7 @@ export default async function CustomerDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ saved?: string; error?: string; goal?: string; goals?: string }>;
+  searchParams?: Promise<{ saved?: string; error?: string; goal?: string; goals?: string; activity?: string; activityPage?: string }>;
 }) {
   const { id } = await params;
   const query = (await searchParams) ?? {};
@@ -395,6 +418,24 @@ export default async function CustomerDetailPage({
     ...log,
     details: auditDetails(log.action, log.payload),
   }));
+  const requestedActivityCategory = query.activity ?? "all";
+  const selectedActivityCategory: ActivityCategory = activityCategories.some(
+    (option) => option.value === requestedActivityCategory,
+  )
+    ? (requestedActivityCategory as ActivityCategory)
+    : "all";
+  const filteredActivity =
+    selectedActivityCategory === "all"
+      ? activity
+      : activity.filter((item) => auditActivityCategory(item.action) === selectedActivityCategory);
+  const activityPageSize = 8;
+  const activityPageCount = Math.max(1, Math.ceil(filteredActivity.length / activityPageSize));
+  const requestedActivityPage = Math.max(1, Number(query.activityPage) || 1);
+  const activityPage = Math.min(requestedActivityPage, activityPageCount);
+  const visibleActivity = filteredActivity.slice(
+    (activityPage - 1) * activityPageSize,
+    activityPage * activityPageSize,
+  );
 
   const sortedGoals = (data.goals ?? []).slice().sort((a, b) => {
     const priorityDelta =
@@ -1221,16 +1262,30 @@ export default async function CustomerDetailPage({
             ) : null}
           </section>
 
-          <section className="panel p-5">
+          <section id="customer-activity" className="panel p-5">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
                 <h2 className="text-xl font-bold">Customer activity</h2>
                 <p className="mt-1 text-sm text-[#68756f]">Profile, planning, assignment, and review changes in one timeline.</p>
               </div>
-              <span className="text-sm font-semibold text-[#68756f]">Latest {Math.min(activity.length, 20)} records</span>
+              <span className="text-sm font-semibold text-[#68756f]">{filteredActivity.length} records</span>
             </div>
+            <form className="mt-4 flex flex-wrap items-end gap-3 no-print" method="get">
+              <label className="field min-w-56">
+                <span className="label">Activity category</span>
+                <select className="input" name="activity" defaultValue={selectedActivityCategory}>
+                  {activityCategories.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <button className="btn btn-primary" type="submit">Filter</button>
+              {selectedActivityCategory !== "all" ? (
+                <Link className="btn" href={activityHref(customer.id, "all", 1)}>Clear</Link>
+              ) : null}
+            </form>
             <div className="mt-4 divide-y divide-[#dce2dc]">
-              {activity.slice(0, 20).map((item) => (
+              {visibleActivity.map((item) => (
                 <article key={item.id} className="grid gap-2 py-4 md:grid-cols-[10rem_1fr]">
                   <div>
                     <p className="text-sm font-semibold">{formatDate(item.created_at)}</p>
@@ -1239,19 +1294,33 @@ export default async function CustomerDetailPage({
                   <div>
                     <p className="font-semibold">{auditActionLabel(item.action)}</p>
                     <p className="mt-1 text-xs font-bold uppercase text-[#68756f]">{auditEntityLabel(item.entity_type)}</p>
-                    <dl className="mt-2 grid gap-x-5 gap-y-2 sm:grid-cols-2">
-                      {item.details.map((detail) => (
-                        <div key={`${item.id}-${detail.label}`}>
-                          <dt className="text-xs font-bold uppercase text-[#68756f]">{detail.label}</dt>
-                          <dd className={`mt-0.5 text-sm ${detail.tone === "danger" ? "text-red-700" : detail.tone === "warning" ? "text-amber-700" : detail.tone === "success" ? "text-emerald-700" : ""}`}>{detail.value}</dd>
-                        </div>
-                      ))}
-                    </dl>
+                    {item.details.length ? (
+                      <details className="mt-2 rounded-md border border-[#dce2dc] p-3">
+                        <summary className="cursor-pointer text-sm font-semibold">View details</summary>
+                        <dl className="mt-3 grid gap-x-5 gap-y-2 sm:grid-cols-2">
+                          {item.details.map((detail) => (
+                            <div key={`${item.id}-${detail.label}`}>
+                              <dt className="text-xs font-bold uppercase text-[#68756f]">{detail.label}</dt>
+                              <dd className={`mt-0.5 break-words text-sm ${detail.tone === "danger" ? "text-red-700" : detail.tone === "warning" ? "text-amber-700" : detail.tone === "success" ? "text-emerald-700" : ""}`}>{detail.value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </details>
+                    ) : null}
                   </div>
                 </article>
               ))}
-              {!activity.length ? <p className="py-4 text-sm text-[#68756f]">Customer changes will appear here after the activity migration is applied.</p> : null}
+              {!filteredActivity.length ? <p className="py-4 text-sm text-[#68756f]">No activity matches this filter.</p> : null}
             </div>
+            {filteredActivity.length > activityPageSize ? (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#dce2dc] pt-4 no-print">
+                <span className="text-sm font-semibold text-[#68756f]">Page {activityPage} of {activityPageCount}</span>
+                <div className="flex gap-2">
+                  {activityPage > 1 ? <Link className="btn" href={activityHref(customer.id, selectedActivityCategory, activityPage - 1)}>Previous</Link> : null}
+                  {activityPage < activityPageCount ? <Link className="btn" href={activityHref(customer.id, selectedActivityCategory, activityPage + 1)}>Next</Link> : null}
+                </div>
+              </div>
+            ) : null}
           </section>
         </div>
       ) : null}

@@ -42,13 +42,26 @@ function validDate(date: Date) {
   return !Number.isNaN(date.getTime());
 }
 
-function availableYears(items: FinancialStatementItem[]) {
+function availableYears(items: FinancialStatementItem[], requestedYear?: number) {
   const years = new Set<number>([new Date().getFullYear()]);
+  if (
+    typeof requestedYear === "number" &&
+    Number.isInteger(requestedYear) &&
+    requestedYear >= 2000 &&
+    requestedYear <= 2100
+  ) {
+    years.add(requestedYear);
+  }
   items.forEach((item) => {
     const date = itemDate(item);
     if (validDate(date)) years.add(date.getFullYear());
   });
   return [...years].sort((a, b) => b - a);
+}
+
+function adjacentMonth(year: number, monthIndex: number, offset: number) {
+  const date = new Date(year, monthIndex + offset, 1);
+  return { year: date.getFullYear(), monthIndex: date.getMonth() };
 }
 
 function lineItems(
@@ -141,8 +154,8 @@ export default async function CustomerStatementsPage({
 
   const customer = data.customer;
   const items = data.statementItems ?? [];
-  const years = availableYears(items);
   const requestedYear = Number(query.year);
+  const years = availableYears(items, requestedYear);
   const year = years.includes(requestedYear) ? requestedYear : years[0];
   const requestedMonth = Number(query.month);
   const monthIndex =
@@ -153,6 +166,8 @@ export default async function CustomerStatementsPage({
   const monthlyCashFlow = buildMonthlyCashFlow(items, year);
   const selectedMonth = monthlyCashFlow[monthIndex];
   const selectedMonthItems = statementItemsForMonth(items, year, monthIndex);
+  const previousMonth = adjacentMonth(year, monthIndex, -1);
+  const nextMonth = adjacentMonth(year, monthIndex, 1);
   const ratios = buildFinancialRatios(items, monthlyCashFlow, year);
   const annualIncome = monthlyCashFlow.reduce((sum, month) => sum + month.income, 0);
   const annualExpenses = monthlyCashFlow.reduce((sum, month) => sum + month.expenses, 0);
@@ -293,12 +308,30 @@ export default async function CustomerStatementsPage({
       </section>
 
       <section className="panel mb-8 overflow-hidden">
-        <div className="border-b border-[#d7ded9] p-5">
-          <h2 className="text-2xl font-bold">{selectedMonth.month} detail</h2>
-          <p className="text-[#5c6963]">
-            Entries contributing to this month. Projected recurring amounts are shown at their
-            monthly equivalent.
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#d7ded9] p-5">
+          <div>
+            <h2 className="text-2xl font-bold">
+              {selectedMonth.month} {year} detail
+            </h2>
+            <p className="text-[#5c6963]">
+              Entries contributing to this month. Projected recurring amounts are shown at their
+              monthly equivalent.
+            </p>
+          </div>
+          <nav className="flex flex-wrap gap-2 no-print" aria-label="Cash flow month navigation">
+            <Link
+              className="btn"
+              href={`?year=${previousMonth.year}&month=${previousMonth.monthIndex}`}
+            >
+              Previous month
+            </Link>
+            <Link
+              className="btn"
+              href={`?year=${nextMonth.year}&month=${nextMonth.monthIndex}`}
+            >
+              Next month
+            </Link>
+          </nav>
         </div>
         <div className="table-wrap">
           <table className="data-table">

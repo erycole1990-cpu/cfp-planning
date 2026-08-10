@@ -199,6 +199,31 @@ function activityHref(customerId: string, category: ActivityCategory, page: numb
   return `/customers/${customerId}${search ? `?${search}` : ""}#customer-activity`;
 }
 
+function readablePlanningValue(value: string) {
+  return value
+    .split("_")
+    .join(" ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function statementDetailLabels(item: FinancialStatementItem) {
+  const labels: string[] = [];
+
+  if (item.ownership_type) labels.push(`Ownership: ${readablePlanningValue(item.ownership_type)}`);
+  if (item.valuation_basis) labels.push(`Valuation: ${readablePlanningValue(item.valuation_basis)}`);
+  if (item.liquidity_class) labels.push(`Liquidity: ${readablePlanningValue(item.liquidity_class)}`);
+  if (item.interest_rate != null) labels.push(`Rate: ${item.interest_rate}%`);
+  if (item.monthly_payment != null) labels.push(`Payment: ${formatCurrency(Number(item.monthly_payment))}/month`);
+  if (item.maturity_date) labels.push(`Maturity: ${formatDate(item.maturity_date)}`);
+  if (item.cash_flow_nature) labels.push(`Nature: ${readablePlanningValue(item.cash_flow_nature)}`);
+  if (item.budget_amount != null) labels.push(`Budget: ${formatCurrency(Number(item.budget_amount))}/month`);
+  if (item.cash_treatment) labels.push(`Treatment: ${readablePlanningValue(item.cash_treatment)}`);
+  if (item.tax_deductible != null) labels.push(item.tax_deductible ? "Tax deductible" : "Not tax deductible");
+  if (item.evidence_status) labels.push(`Evidence: ${readablePlanningValue(item.evidence_status)}`);
+
+  return labels;
+}
+
 function StatementSection({
   title,
   summary,
@@ -289,6 +314,121 @@ function StatementSection({
             )}
           </select>
         </label>
+        <details className="rounded-md border border-[#dce2dc] p-3 sm:col-span-2 xl:col-span-full">
+          <summary className="cursor-pointer font-bold">
+            Planning details <span className="text-sm font-normal text-[#68756f]">(optional)</span>
+          </summary>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {statementType === "balance_sheet" ? (
+              <>
+                <label>
+                  <span>Ownership</span>
+                  <select className="input mt-1" name="ownership_type" defaultValue="">
+                    <option value="">Not recorded</option>
+                    <option value="sole">Sole</option>
+                    <option value="joint">Joint</option>
+                    <option value="business">Business</option>
+                    <option value="trust">Trust</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Valuation basis</span>
+                  <select className="input mt-1" name="valuation_basis" defaultValue="">
+                    <option value="">Not recorded</option>
+                    <option value="statement_balance">Statement balance</option>
+                    <option value="market_estimate">Market estimate</option>
+                    <option value="purchase_cost">Purchase cost</option>
+                    <option value="professional_valuation">Professional valuation</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Liquidity</span>
+                  <select className="input mt-1" name="liquidity_class" defaultValue="">
+                    <option value="">Not recorded</option>
+                    <option value="liquid">Liquid</option>
+                    <option value="near_liquid">Near liquid</option>
+                    <option value="illiquid">Illiquid</option>
+                    <option value="restricted">Restricted</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Interest rate (%)</span>
+                  <input className="input mt-1" name="interest_rate" type="number" min="0" max="100" step="0.01" />
+                </label>
+                <label>
+                  <span>Monthly payment</span>
+                  <input className="input mt-1" name="monthly_payment" type="number" min="0" step="0.01" />
+                </label>
+                <label>
+                  <span>Maturity date</span>
+                  <input className="input mt-1" name="maturity_date" type="date" />
+                </label>
+              </>
+            ) : null}
+            {statementType === "cash_flow" ? (
+              <>
+                <label>
+                  <span>Cash-flow nature</span>
+                  <select className="input mt-1" name="cash_flow_nature" defaultValue="">
+                    <option value="">Not recorded</option>
+                    <option value="essential">Essential</option>
+                    <option value="discretionary">Discretionary</option>
+                    <option value="savings_investment">Savings / investment</option>
+                    <option value="debt_repayment">Debt repayment</option>
+                    <option value="tax_statutory">Tax / statutory</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Monthly budget</span>
+                  <input className="input mt-1" name="budget_amount" type="number" min="0" step="0.01" />
+                </label>
+              </>
+            ) : null}
+            {statementType === "profit_loss" ? (
+              <>
+                <label>
+                  <span>Cash treatment</span>
+                  <select className="input mt-1" name="cash_treatment" defaultValue="">
+                    <option value="">Not recorded</option>
+                    <option value="cash">Cash</option>
+                    <option value="non_cash">Non-cash</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Tax deductible</span>
+                  <select className="input mt-1" name="tax_deductible" defaultValue="">
+                    <option value="">Not recorded</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Monthly budget</span>
+                  <input className="input mt-1" name="budget_amount" type="number" min="0" step="0.01" />
+                </label>
+              </>
+            ) : null}
+            <label>
+              <span>Evidence status</span>
+              <select className="input mt-1" name="evidence_status" defaultValue="unverified">
+                <option value="unverified">Unverified</option>
+                <option value="client_provided">Client provided</option>
+                <option value="adviser_verified">Adviser verified</option>
+              </select>
+            </label>
+            <label className="sm:col-span-2 xl:col-span-3">
+              <span>Evidence note / reference</span>
+              <input
+                className="input mt-1"
+                name="evidence_note"
+                placeholder="Example: bank statement dated 31 July 2026"
+              />
+            </label>
+          </div>
+        </details>
+
         <div className="flex items-end sm:col-span-2 xl:col-span-1">
           <button className="btn w-full" type="submit">
             Add
@@ -310,11 +450,26 @@ function StatementSection({
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => (
+            {items.map((item) => {
+              const detailLabels = statementDetailLabels(item);
+
+              return (
               <tr key={item.id}>
                 <td className="capitalize">{item.item_type.replace("_", " ")}</td>
                 <td>{item.category || "Not set"}</td>
-                <td>{item.description}</td>
+                <td>
+                  <p>{item.description}</p>
+                  {detailLabels.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {detailLabels.map((label) => (
+                        <span className="rounded-full bg-[#eef3ef] px-2 py-1 text-xs text-[#40524a]" key={label}>
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {item.evidence_note ? <p className="mt-2 text-sm text-[#68756f]">{item.evidence_note}</p> : null}
+                </td>
                 <td>
                   {formatCurrency(item.amount)}
                   {showFrequency ? <p className="text-sm text-[#68756f]">{frequencyLabel(item.frequency)}</p> : null}
@@ -336,7 +491,8 @@ function StatementSection({
                   ) : null}
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {!items.length ? (
               <tr>
                 <td colSpan={tableColumnCount} className="text-sm text-[#68756f]">

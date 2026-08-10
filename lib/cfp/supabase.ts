@@ -133,6 +133,18 @@ export type FinancialStatementItem = {
   amount: number | string;
   frequency: string | null;
   statement_date: string | null;
+  ownership_type: string | null;
+  valuation_basis: string | null;
+  liquidity_class: string | null;
+  evidence_status: string | null;
+  evidence_note: string | null;
+  interest_rate: number | string | null;
+  monthly_payment: number | string | null;
+  maturity_date: string | null;
+  cash_flow_nature: string | null;
+  budget_amount: number | string | null;
+  tax_deductible: boolean | null;
+  cash_treatment: string | null;
 };
 
 export type PendingClientSubmission = {

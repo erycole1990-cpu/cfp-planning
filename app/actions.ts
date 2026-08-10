@@ -40,6 +40,31 @@ function optionalWholeNumber(formData: FormData, key: string) {
   return value;
 }
 
+function optionalNumberValue(formData: FormData, key: string, max?: number) {
+  const raw = text(formData, key);
+  if (raw === null) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || (max !== undefined && value > max)) {
+    throw new Error(`${key} must be a valid non-negative number.`);
+  }
+  return value;
+}
+
+function optionalChoice(formData: FormData, key: string, allowed: readonly string[]) {
+  const value = text(formData, key);
+  if (value === null) return null;
+  if (!allowed.includes(value)) throw new Error(`${key} is invalid.`);
+  return value;
+}
+
+function optionalBoolean(formData: FormData, key: string) {
+  const value = text(formData, key);
+  if (value === null) return null;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`${key} is invalid.`);
+}
+
 async function writeAudit(input: {
   actor?: string | null;
   action: string;
@@ -387,6 +412,31 @@ export async function createFinancialStatementItem(formData: FormData) {
     amount: numberValue(formData, "amount"),
     frequency: text(formData, "frequency") || "monthly",
     statement_date: text(formData, "statement_date"),
+    ownership_type: optionalChoice(formData, "ownership_type", ["sole", "joint", "business", "trust", "other"]),
+    valuation_basis: optionalChoice(formData, "valuation_basis", [
+      "statement_balance",
+      "market_estimate",
+      "purchase_cost",
+      "professional_valuation",
+      "other",
+    ]),
+    liquidity_class: optionalChoice(formData, "liquidity_class", ["liquid", "near_liquid", "illiquid", "restricted"]),
+    evidence_status:
+      optionalChoice(formData, "evidence_status", ["unverified", "client_provided", "adviser_verified"]) || "unverified",
+    evidence_note: text(formData, "evidence_note"),
+    interest_rate: optionalNumberValue(formData, "interest_rate", 100),
+    monthly_payment: optionalNumberValue(formData, "monthly_payment"),
+    maturity_date: text(formData, "maturity_date"),
+    cash_flow_nature: optionalChoice(formData, "cash_flow_nature", [
+      "essential",
+      "discretionary",
+      "savings_investment",
+      "debt_repayment",
+      "tax_statutory",
+    ]),
+    budget_amount: optionalNumberValue(formData, "budget_amount"),
+    tax_deductible: optionalBoolean(formData, "tax_deductible"),
+    cash_treatment: optionalChoice(formData, "cash_treatment", ["cash", "non_cash"]),
   };
 
   if (requiresIndependentReview(access, customer)) {

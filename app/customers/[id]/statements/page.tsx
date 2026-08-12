@@ -157,6 +157,13 @@ export default async function CustomerStatementsPage({
   const requestedYear = Number(query.year);
   const years = availableYears(items, requestedYear);
   const year = years.includes(requestedYear) ? requestedYear : years[0];
+  const currentYear = new Date().getFullYear();
+  const yearOptions = Array.from(
+    new Set([
+      ...years,
+      ...Array.from({ length: 10 }, (_, index) => currentYear - index),
+    ]),
+  ).sort((a, b) => b - a);
   const requestedMonth = Number(query.month);
   const monthIndex =
     Number.isInteger(requestedMonth) && requestedMonth >= 0 && requestedMonth <= 11
@@ -318,20 +325,51 @@ export default async function CustomerStatementsPage({
               monthly equivalent.
             </p>
           </div>
-          <nav className="flex flex-wrap gap-2 no-print" aria-label="Cash flow month navigation">
+          <form
+            action={`/customers/${id}/statements`}
+            className="flex flex-wrap items-end gap-2 no-print"
+            method="get"
+          >
             <Link
               className="btn"
               href={`?year=${previousMonth.year}&month=${previousMonth.monthIndex}`}
+              aria-label="Previous month"
+              title="Previous month"
             >
-              Previous month
+              &lsaquo;
             </Link>
+            <label className="grid min-w-40 gap-1">
+              <span className="form-label">Month</span>
+              <select defaultValue={monthIndex} name="month">
+                {monthlyCashFlow.map((month, index) => (
+                  <option key={month.month} value={index}>
+                    {month.month}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid min-w-32 gap-1">
+              <span className="form-label">Year</span>
+              <select defaultValue={year} name="year">
+                {yearOptions.map((optionYear) => (
+                  <option key={optionYear} value={optionYear}>
+                    {optionYear}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="btn btn-primary" type="submit">
+              View
+            </button>
             <Link
               className="btn"
               href={`?year=${nextMonth.year}&month=${nextMonth.monthIndex}`}
+              aria-label="Next month"
+              title="Next month"
             >
-              Next month
+              &rsaquo;
             </Link>
-          </nav>
+          </form>
         </div>
         <div className="table-wrap">
           <table className="data-table">

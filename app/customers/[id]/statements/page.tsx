@@ -6,6 +6,7 @@ import { AppShell, PageHeader } from "@/app/ui";
 import {
   buildFinancialRatios,
   buildMonthlyCashFlow,
+  buildProfitAndLossSummary,
   cashFlowAmountForMonth,
   statementItemsForMonth,
   type FinancialRatio,
@@ -185,9 +186,7 @@ export default async function CustomerStatementsPage({
   const liabilities = lineItems(balanceItems, "balance_sheet", "liability");
   const netWorth = total(assets) - total(liabilities);
   const profitLossItems = items.filter((item) => item.statement_type === "profit_loss");
-  const revenue = lineItems(profitLossItems, "profit_loss", "revenue");
-  const businessExpenses = lineItems(profitLossItems, "profit_loss", "expense");
-  const businessProfit = total(revenue) - total(businessExpenses);
+  const businessProfit = buildProfitAndLossSummary(profitLossItems).profit;
 
   return (
     <AppShell>
@@ -210,7 +209,7 @@ export default async function CustomerStatementsPage({
             <label className="field min-w-40">
               <span>Reporting year</span>
               <select name="year" defaultValue={year}>
-                {years.map((availableYear) => (
+                {yearOptions.map((availableYear) => (
                   <option key={availableYear} value={availableYear}>
                     {availableYear}
                   </option>

@@ -21,6 +21,12 @@ export type FinancialRatio = {
   explanation: string;
 };
 
+export type ProfitAndLossSummary = {
+  revenue: number;
+  costs: number;
+  profit: number;
+};
+
 const monthLabels = [
   "January",
   "February",
@@ -149,6 +155,15 @@ function itemText(item: FinancialStatementItem) {
   return `${item.category || ""} ${item.description || ""}`.trim();
 }
 
+function matchesCashFlowNature(
+  item: FinancialStatementItem,
+  values: string[],
+  fallback: RegExp,
+) {
+  if (item.cash_flow_nature) return values.includes(item.cash_flow_nature);
+  return fallback.test(itemText(item));
+}
+
 function annualCashFlowAmount(
   items: FinancialStatementItem[],
   year: number,
@@ -181,9 +196,11 @@ export function buildFinancialRatios(
     .filter(
       (item) =>
         item.item_type === "asset" &&
-        [item.category, item.description]
-          .filter(Boolean)
-          .some((value) => /\b(cash|saving|current account|fixed deposit)\b/i.test(String(value))),
+        (item.liquidity_class
+          ? item.liquidity_class === "liquid"
+          : [item.category, item.description]
+              .filter(Boolean)
+              .some((value) => /\b(cash|saving|current account|fixed deposit)\b/i.test(String(value)))),
     )
     .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
 
@@ -201,7 +218,9 @@ export function buildFinancialRatios(
   const annualDebtPayments = annualCashFlowAmount(
     cashFlowItems,
     year,
-    (item) => item.item_type === "expense" && debtCategories.test(itemText(item)),
+    (item) =>
+      item.item_type === "expense" &&
+      matchesCashFlowNature(item, ["debt_repayment"], debtCategories),
   );
   const annualHousingCosts = annualCashFlowAmount(
     cashFlowItems,
@@ -211,12 +230,20 @@ export function buildFinancialRatios(
   const annualEssentialExpenses = annualCashFlowAmount(
     cashFlowItems,
     year,
-    (item) => item.item_type === "expense" && essentialCategories.test(itemText(item)),
+    (item) =>
+      item.item_type === "expense" &&
+      matchesCashFlowNature(
+        item,
+        ["essential", "debt_repayment", "tax_statutory"],
+        essentialCategories,
+      ),
   );
   const annualSavingsAndInvestments = annualCashFlowAmount(
     cashFlowItems,
     year,
-    (item) => item.item_type === "expense" && savingsCategories.test(itemText(item)),
+    (item) =>
+      item.item_type === "expense" &&
+      matchesCashFlowNature(item, ["savings_investment"], savingsCategories),
   );
 
   const averageMonthlyEssentialExpenses = annualEssentialExpenses / 12;
@@ -346,4 +373,20 @@ export function buildFinancialRatios(
         "Requires projected assets and contributions at the goal date. A current balance alone cannot provide a reliable funding projection.",
     },
   ];
+}
+
+export function buildProfitAndLossSummary(
+  items: FinancialStatementItem[],
+): ProfitAndLossSummary {
+  const profitAndLossItems = items.filter(
+    (item) => item.statement_type === "profit_loss",
+  );
+  const revenue = sumItems(profitAndLossItems, ["revenue"]);
+  const costs = sumItems(profitAndLossItems, ["cost", "expense"]);
+
+  return {
+    revenue,
+    costs,
+    profit: revenue - costs,
+  };
 }

@@ -32,6 +32,21 @@ export type MonthlyProfitAndLoss = ProfitAndLossSummary & {
   month: string;
 };
 
+export type MonthlyFinancialOverview = {
+  year: number;
+  monthIndex: number;
+  month: string;
+  monthlyCashFlow: MonthlyCashFlow[];
+  cashFlow: MonthlyCashFlow;
+  profitAndLoss: ProfitAndLossSummary;
+};
+
+export type StatementCalendarDate = {
+  year: number;
+  monthIndex: number;
+  day: number;
+};
+
 const monthLabels = [
   "January",
   "February",
@@ -47,8 +62,40 @@ const monthLabels = [
   "December",
 ];
 
-function itemDate(item: FinancialStatementItem) {
-  return new Date(item.statement_date || item.created_at);
+function parseDateOnly(value: string): StatementCalendarDate | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const validationDate = new Date(Date.UTC(year, monthIndex, day));
+  if (
+    validationDate.getUTCFullYear() !== year ||
+    validationDate.getUTCMonth() !== monthIndex ||
+    validationDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return { year, monthIndex, day };
+}
+
+export function statementCalendarDate(
+  item: FinancialStatementItem,
+): StatementCalendarDate | null {
+  if (item.statement_date) {
+    const dateOnly = parseDateOnly(item.statement_date);
+    if (dateOnly) return dateOnly;
+  }
+
+  const createdAt = new Date(item.created_at);
+  if (Number.isNaN(createdAt.getTime())) return null;
+  return {
+    year: createdAt.getUTCFullYear(),
+    monthIndex: createdAt.getUTCMonth(),
+    day: createdAt.getUTCDate(),
+  };
 }
 
 function normalizedFrequency(item: FinancialStatementItem) {
@@ -72,9 +119,11 @@ function monthlyEquivalent(item: FinancialStatementItem) {
 }
 
 function appliesInMonth(item: FinancialStatementItem, year: number, monthIndex: number) {
-  const date = itemDate(item);
-  const itemYear = date.getFullYear();
-  const itemMonth = date.getMonth();
+  const date = statementCalendarDate(item);
+  if (!date) return false;
+
+  const itemYear = date.year;
+  const itemMonth = date.monthIndex;
   const frequency = normalizedFrequency(item);
 
   if (frequency === "one_time") {
@@ -431,4 +480,25 @@ export function buildProfitAndLossSummary(
     }),
     { revenue: 0, costs: 0, profit: 0 },
   );
+}
+
+export function buildMonthlyFinancialOverview(
+  items: FinancialStatementItem[],
+  year: number,
+  monthIndex: number,
+): MonthlyFinancialOverview {
+  if (!Number.isInteger(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+    throw new Error("Reporting month must be between January and December.");
+  }
+
+  const monthlyCashFlow = buildMonthlyCashFlow(items, year);
+  const cashFlow = monthlyCashFlow[monthIndex];
+  return {
+    year,
+    monthIndex,
+    month: cashFlow.month,
+    monthlyCashFlow,
+    cashFlow,
+    profitAndLoss: buildProfitAndLossSummary(items, year, monthIndex),
+  };
 }

@@ -22,6 +22,13 @@ import type { FinancialStatementItem } from "@/lib/cfp/supabase";
 import { GoalLifecycleActions } from "./goal-lifecycle-actions";
 import { auditActionLabel, auditDetails, auditEntityLabel } from "@/lib/cfp/audit";
 import { evaluateGoalHealth } from "@/lib/cfp/status";
+import {
+  buildMonthlyFinancialOverview,
+  cashFlowAmountForMonth,
+  statementCalendarDate,
+  type MonthlyCashFlow,
+} from "@/lib/cfp/financial-analysis";
+import { buildActivityWindowPresentation } from "@/lib/cfp/activity-window";
 
 export const dynamic = "force-dynamic";
 
@@ -72,22 +79,6 @@ function calculatorHref(customerId: string, goal: {
   return `/calculator?${params.toString()}`;
 }
 
-function monthlyEquivalent(item: FinancialStatementItem) {
-  const amount = Number(item.amount) || 0;
-  switch (item.frequency) {
-    case "weekly":
-      return (amount * 52) / 12;
-    case "quarterly":
-      return amount / 3;
-    case "annual":
-      return amount / 12;
-    case "one_time":
-      return 0;
-    default:
-      return amount;
-  }
-}
-
 function frequencyLabel(frequency: string | null) {
   switch (frequency) {
     case "weekly":
@@ -105,48 +96,15 @@ function frequencyLabel(frequency: string | null) {
   }
 }
 
-function statementDate(item: FinancialStatementItem) {
-  const date = new Date(item.statement_date ? `${item.statement_date}T00:00:00` : item.created_at);
-  return Number.isNaN(date.getTime()) ? new Date(0) : date;
-}
-
 function formatStatementMonth(item: FinancialStatementItem) {
-  const date = statementDate(item);
-  return `${monthLabels[date.getMonth()]} ${date.getFullYear()}`;
+  const date = statementCalendarDate(item);
+  return date ? `${monthLabels[date.monthIndex]} ${date.year}` : "Not set";
 }
 
-function cashFlowImpactForMonth(item: FinancialStatementItem, monthIndex: number) {
-  const amount = Number(item.amount) || 0;
-  if (["monthly", "weekly", "quarterly"].includes(item.frequency || "monthly")) {
-    return monthlyEquivalent(item);
-  }
-
-  const date = statementDate(item);
-  return date.getMonth() === monthIndex ? amount : 0;
-}
-
-function buildCashFlowMonthlySummary(items: FinancialStatementItem[]) {
-  return monthLabels.map((month, index) => {
-    const income = items
-      .filter((item) => item.item_type === "income")
-      .reduce((total, item) => total + cashFlowImpactForMonth(item, index), 0);
-    const expenses = items
-      .filter((item) => item.item_type === "expense")
-      .reduce((total, item) => total + cashFlowImpactForMonth(item, index), 0);
-
-    return {
-      month,
-      income,
-      expenses,
-      surplus: income - expenses,
-    };
-  });
-}
-
-function sumStatement(items: FinancialStatementItem[], statementType: string, itemTypes: string[], monthly = false) {
+function sumStatementAmounts(items: FinancialStatementItem[], statementType: string, itemTypes: string[]) {
   return items
     .filter((item) => item.statement_type === statementType && itemTypes.includes(item.item_type))
-    .reduce((total, item) => total + (monthly ? monthlyEquivalent(item) : Number(item.amount) || 0), 0);
+    .reduce((total, item) => total + (Number(item.amount) || 0), 0);
 }
 
 function isBusinessPlanningRelevant(customer: { employment_status?: string | null; occupation?: string | null } | null | undefined) {
@@ -236,6 +194,8 @@ function StatementSection({
   showFrequency = true,
   dateLabel,
   monthlySummary,
+  reportingYear,
+  reportingMonthIndex,
   canDelete = true,
 }: {
   title: string;
@@ -248,7 +208,9 @@ function StatementSection({
   categories: string[];
   showFrequency?: boolean;
   dateLabel?: string;
-  monthlySummary?: Array<{ month: string; income: number; expenses: number; surplus: number }>;
+  monthlySummary?: MonthlyCashFlow[];
+  reportingYear: number;
+  reportingMonthIndex: number;
   canDelete?: boolean;
 }) {
   const showDate = Boolean(dateLabel);
@@ -445,7 +407,11 @@ function StatementSection({
               <th>Description</th>
               <th>Amount</th>
               {showDate ? <th>{dateLabel}</th> : null}
-              <th>{showFrequency ? "Monthly eq." : "Value"}</th>
+              <th>
+                {showFrequency
+                  ? `${monthLabels[reportingMonthIndex]} ${reportingYear} amount`
+                  : "Value"}
+              </th>
               <th></th>
             </tr>
           </thead>
@@ -477,7 +443,13 @@ function StatementSection({
                 {showDate ? (
                   <td>{item.statement_date ? (showFrequency ? formatStatementMonth(item) : formatDate(item.statement_date)) : "Not set"}</td>
                 ) : null}
-                <td>{formatCurrency(showFrequency ? monthlyEquivalent(item) : item.amount)}</td>
+                <td>
+                  {formatCurrency(
+                    showFrequency
+                      ? cashFlowAmountForMonth(item, reportingYear, reportingMonthIndex)
+                      : item.amount,
+                  )}
+                </td>
                 <td>
                   {canDelete ? (
                     <form action={deleteFinancialStatementItem}>
@@ -509,7 +481,7 @@ function StatementSection({
           <div className="border-b border-[#dce2dc] p-4">
             <h3 className="font-bold">Monthly cash-flow summary</h3>
             <p className="mt-1 text-sm text-[#68756f]">
-              Monthly, weekly, and quarterly items are spread across every month. Annual and one-time items are shown in the month selected above.
+              Period-aware projection for {reportingYear}. Recurring entries begin on their recorded start date; annual and one-time items appear only in their dated month.
             </p>
           </div>
           <div className="table-wrap">
@@ -592,14 +564,15 @@ export default async function CustomerDetailPage({
     (activityPage - 1) * activityPageSize,
     activityPage * activityPageSize,
   );
-  const activityTotalCount = data.activityTotalCount ?? activity.length;
+  const activityTotalCount = data.activityTotalCount ?? null;
   const activityWindowLimit = data.activityWindowLimit ?? activity.length;
-  const activityWindowLimited = activityTotalCount > activity.length;
-  const activityCountLabel = activityWindowLimited
-    ? selectedActivityCategory === "all"
-      ? `Latest ${activity.length} of ${activityTotalCount} records`
-      : `${filteredActivity.length} matches in latest ${activity.length} of ${activityTotalCount} records`
-    : `${filteredActivity.length} records`;
+  const activityPresentation = buildActivityWindowPresentation({
+    loadedCount: activity.length,
+    filteredCount: filteredActivity.length,
+    totalCount: activityTotalCount,
+    windowLimit: activityWindowLimit,
+    filterIsAll: selectedActivityCategory === "all",
+  });
 
   const sortedGoals = (data.goals ?? []).slice().sort((a, b) => {
     const priorityDelta =
@@ -617,16 +590,25 @@ export default async function CustomerDetailPage({
   const balanceSheetItems = statementItems.filter((item) => item.statement_type === "balance_sheet");
   const cashFlowItems = statementItems.filter((item) => item.statement_type === "cash_flow");
   const profitLossItems = statementItems.filter((item) => item.statement_type === "profit_loss");
-  const totalAssets = sumStatement(statementItems, "balance_sheet", ["asset"]);
-  const totalLiabilities = sumStatement(statementItems, "balance_sheet", ["liability"]);
+  const totalAssets = sumStatementAmounts(statementItems, "balance_sheet", ["asset"]);
+  const totalLiabilities = sumStatementAmounts(statementItems, "balance_sheet", ["liability"]);
   const netWorth = totalAssets - totalLiabilities;
-  const monthlyIncome = sumStatement(statementItems, "cash_flow", ["income"], true);
-  const monthlyExpenses = sumStatement(statementItems, "cash_flow", ["expense"], true);
-  const monthlySurplus = monthlyIncome - monthlyExpenses;
-  const cashFlowMonthlySummary = buildCashFlowMonthlySummary(cashFlowItems);
-  const monthlyRevenue = sumStatement(statementItems, "profit_loss", ["revenue"], true);
-  const monthlyCosts = sumStatement(statementItems, "profit_loss", ["cost", "expense"], true);
-  const monthlyProfit = monthlyRevenue - monthlyCosts;
+  const overviewDate = new Date();
+  const overviewYear = overviewDate.getFullYear();
+  const overviewMonthIndex = overviewDate.getMonth();
+  const financialOverview = buildMonthlyFinancialOverview(
+    statementItems,
+    overviewYear,
+    overviewMonthIndex,
+  );
+  const monthlyIncome = financialOverview.cashFlow.income;
+  const monthlyExpenses = financialOverview.cashFlow.expenses;
+  const monthlySurplus = financialOverview.cashFlow.surplus;
+  const cashFlowMonthlySummary = financialOverview.monthlyCashFlow;
+  const monthlyRevenue = financialOverview.profitAndLoss.revenue;
+  const monthlyCosts = financialOverview.profitAndLoss.costs;
+  const monthlyProfit = financialOverview.profitAndLoss.profit;
+  const overviewPeriodLabel = `${financialOverview.month} ${overviewYear}`;
   const showProfitLossSummary = isBusinessPlanningRelevant(customer) || profitLossItems.length > 0;
   const actor = accessDisplayName(access);
 
@@ -637,7 +619,10 @@ export default async function CustomerDetailPage({
         title={customer?.full_name || "Customer"}
         actions={
          <div className="flex flex-wrap gap-2">
-            <Link className="btn btn-secondary" href={`/customers/${id}/statements`}>
+            <Link
+              className="btn btn-secondary"
+              href={`/customers/${id}/statements?year=${overviewYear}&month=${overviewMonthIndex}`}
+            >
               Statements &amp; Ratios
             </Link>
             <Link className="btn btn-secondary" href={`/customers/${id}/plan`}>
@@ -977,12 +962,14 @@ export default async function CustomerDetailPage({
               </div>
               <div className="rounded-md bg-[#f5f7f4] p-4">
                 <p className="text-sm font-bold uppercase text-[#68756f]">Monthly Surplus</p>
+                <p className="mt-1 text-sm font-semibold text-[#405047]">{overviewPeriodLabel}</p>
                 <p className="mt-2 text-2xl font-bold">{formatCurrency(monthlySurplus)}</p>
                 <p className="mt-1 text-sm text-[#405047]">{formatCurrency(monthlyIncome)} income - {formatCurrency(monthlyExpenses)} expenses</p>
               </div>
               {showProfitLossSummary ? (
                 <div className="rounded-md bg-[#f5f7f4] p-4">
                   <p className="text-sm font-bold uppercase text-[#68756f]">Business Monthly Profit</p>
+                  <p className="mt-1 text-sm font-semibold text-[#405047]">{overviewPeriodLabel}</p>
                   <p className="mt-2 text-2xl font-bold">{formatCurrency(monthlyProfit)}</p>
                   <p className="mt-1 text-sm text-[#405047]">{formatCurrency(monthlyRevenue)} revenue - {formatCurrency(monthlyCosts)} costs</p>
                 </div>
@@ -1001,6 +988,8 @@ export default async function CustomerDetailPage({
                 canDelete={!submissionOnly}
                 showFrequency={false}
                 dateLabel="As-at date"
+                reportingYear={overviewYear}
+                reportingMonthIndex={overviewMonthIndex}
                 itemTypes={[
                   { value: "asset", label: "Asset" },
                   { value: "liability", label: "Liability" },
@@ -1017,6 +1006,8 @@ export default async function CustomerDetailPage({
                 canDelete={!submissionOnly}
                 dateLabel="Date / month"
                 monthlySummary={cashFlowMonthlySummary}
+                reportingYear={overviewYear}
+                reportingMonthIndex={overviewMonthIndex}
                 itemTypes={[
                   { value: "income", label: "Income" },
                   { value: "expense", label: "Expense" },
@@ -1072,6 +1063,8 @@ export default async function CustomerDetailPage({
                 actor={actor}
                 canDelete={!submissionOnly}
                 dateLabel="Date / month"
+                reportingYear={overviewYear}
+                reportingMonthIndex={overviewMonthIndex}
                 itemTypes={[
                   { value: "revenue", label: "Revenue" },
                   { value: "cost", label: "Cost" },
@@ -1441,11 +1434,13 @@ export default async function CustomerDetailPage({
                 <h2 className="text-xl font-bold">Customer activity</h2>
                 <p className="mt-1 text-sm text-[#68756f]">Profile, planning, assignment, and review changes in one timeline.</p>
               </div>
-              <span className="text-sm font-semibold text-[#68756f]">{activityCountLabel}</span>
+              <span className="text-sm font-semibold text-[#68756f]">
+                {activityPresentation.countLabel}
+              </span>
             </div>
-            {activityWindowLimited ? (
+            {activityPresentation.disclosure ? (
               <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                Filters and pages on this screen cover the latest {activity.length} records. The full audit history contains {activityTotalCount} records; older records remain retained but are not included in this customer view. This view is capped at {activityWindowLimit} records.
+                {activityPresentation.disclosure}
               </p>
             ) : null}
             <form className="mt-4 flex flex-wrap items-end gap-3 no-print" method="get">

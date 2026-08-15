@@ -9,7 +9,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test:financial": "node --test --experimental-strip-types tests/financial-analysis.test.mjs",
-    "test:statements": "node --test --experimental-strip-types tests/financial-statement-schema.test.mjs"
+    "test:statements": "node --test --experimental-strip-types tests/financial-statement-schema.test.mjs",
+    "test:reporting-states": "node --test --experimental-strip-types tests/reporting-state.test.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.0",

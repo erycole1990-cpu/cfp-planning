@@ -14,6 +14,7 @@ import {
   financialStatementErrorMessage,
   financialStatementItemSelect,
 } from "./financial-statement-schema";
+import { resolveActivityTotalCount } from "./activity-window";
 
 export type DashboardData = {
   configured: boolean;
@@ -197,6 +198,7 @@ export async function getCustomerDetail(id: string) {
   const statementError = statementsResult.error
     ? financialStatementErrorMessage(statementsResult.error)
     : null;
+  const activityCountError = auditCountResult.error?.message ?? null;
 
   return {
     configured: true,
@@ -209,7 +211,11 @@ export async function getCustomerDetail(id: string) {
     statementError,
     pendingSubmissions: (submissionsResult.data ?? []) as PendingClientSubmission[],
     auditLogs: (auditResult.data ?? []) as CustomerAuditLog[],
-    activityTotalCount: auditCountResult.count ?? (auditResult.data ?? []).length,
+    activityTotalCount: resolveActivityTotalCount(
+      auditCountResult.count,
+      activityCountError,
+    ),
+    activityCountError,
     activityWindowLimit: customerActivityWindowLimit,
     latestLogsByGoal,
     error:
@@ -220,7 +226,8 @@ export async function getCustomerDetail(id: string) {
       statementError ||
       submissionsResult.error?.message ||
       auditResult.error?.message ||
-      auditCountResult.error?.message,
+      activityCountError ||
+      undefined,
   };
 }
 

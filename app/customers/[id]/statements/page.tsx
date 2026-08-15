@@ -5,13 +5,15 @@ import { PrintPlanButton } from "@/app/customers/[id]/plan/print-button";
 import { AppShell, ErrorNotice, PageHeader } from "@/app/ui";
 import {
   buildFinancialRatios,
-  buildMonthlyCashFlow,
+  buildMonthlyFinancialOverview,
   buildProfitAndLossSummary,
   cashFlowAmountForMonth,
+  statementCalendarDate,
   statementItemsForMonth,
   type FinancialRatio,
   type RatioStatus,
 } from "@/lib/cfp/financial-analysis";
+import { resolveFinancialStatementState } from "@/lib/cfp/financial-statement-state";
 import { getCustomerDetail } from "@/lib/cfp/data";
 import { formatCurrency, formatDate } from "@/lib/cfp/format";
 import type { FinancialStatementItem } from "@/lib/cfp/supabase";
@@ -35,14 +37,6 @@ const ratioLabels: Record<RatioStatus, string> = {
   insufficient: "Not assessed",
 };
 
-function itemDate(item: FinancialStatementItem) {
-  return new Date(item.statement_date || item.created_at);
-}
-
-function validDate(date: Date) {
-  return !Number.isNaN(date.getTime());
-}
-
 function availableYears(items: FinancialStatementItem[], requestedYear?: number) {
   const years = new Set<number>([new Date().getFullYear()]);
   if (
@@ -54,15 +48,16 @@ function availableYears(items: FinancialStatementItem[], requestedYear?: number)
     years.add(requestedYear);
   }
   items.forEach((item) => {
-    const date = itemDate(item);
-    if (validDate(date)) years.add(date.getFullYear());
+    const date = statementCalendarDate(item);
+    if (date) years.add(date.year);
   });
   return [...years].sort((a, b) => b - a);
 }
 
 function adjacentMonth(year: number, monthIndex: number, offset: number) {
-  const date = new Date(year, monthIndex + offset, 1);
-  return { year: date.getFullYear(), monthIndex: date.getMonth() };
+  const absoluteMonth = year * 12 + monthIndex + offset;
+  const adjacentYear = Math.floor(absoluteMonth / 12);
+  return { year: adjacentYear, monthIndex: absoluteMonth - adjacentYear * 12 };
 }
 
 function lineItems(
@@ -163,7 +158,12 @@ export default async function CustomerStatementsPage({
     </div>
   );
 
-  if (data.statementError) {
+  const statementState = resolveFinancialStatementState(
+    data.statementItems,
+    data.statementError,
+  );
+
+  if (statementState.status === "error") {
     return (
       <AppShell>
         <PageHeader
@@ -171,7 +171,7 @@ export default async function CustomerStatementsPage({
           title={customer.full_name}
           actions={headerActions}
         />
-        <ErrorNotice message={data.statementError} />
+        <ErrorNotice message={statementState.error} />
         <section className="panel p-5">
           <h2 className="text-xl font-bold">Financial report unavailable</h2>
           <p className="mt-2 text-sm text-[#5c6963]">
@@ -182,7 +182,7 @@ export default async function CustomerStatementsPage({
     );
   }
 
-  const items = data.statementItems ?? [];
+  const items = statementState.items;
   const requestedYear = Number(query.year);
   const years = availableYears(items, requestedYear);
   const year = years.includes(requestedYear) ? requestedYear : years[0];
@@ -199,8 +199,9 @@ export default async function CustomerStatementsPage({
       ? requestedMonth
       : new Date().getMonth();
 
-  const monthlyCashFlow = buildMonthlyCashFlow(items, year);
-  const selectedMonth = monthlyCashFlow[monthIndex];
+  const selectedOverview = buildMonthlyFinancialOverview(items, year, monthIndex);
+  const monthlyCashFlow = selectedOverview.monthlyCashFlow;
+  const selectedMonth = selectedOverview.cashFlow;
   const selectedMonthItems = statementItemsForMonth(items, year, monthIndex);
   const previousMonth = adjacentMonth(year, monthIndex, -1);
   const nextMonth = adjacentMonth(year, monthIndex, 1);
@@ -214,11 +215,7 @@ export default async function CustomerStatementsPage({
   const liabilities = lineItems(balanceItems, "balance_sheet", "liability");
   const netWorth = total(assets) - total(liabilities);
   const profitLossItems = items.filter((item) => item.statement_type === "profit_loss");
-  const selectedBusinessSummary = buildProfitAndLossSummary(
-    profitLossItems,
-    year,
-    monthIndex,
-  );
+  const selectedBusinessSummary = selectedOverview.profitAndLoss;
   const annualBusinessSummary = buildProfitAndLossSummary(profitLossItems, year);
 
   return (
@@ -230,6 +227,12 @@ export default async function CustomerStatementsPage({
       />
 
       <ErrorNotice message={data.error} />
+
+      {statementState.status === "empty" ? (
+        <section className="mb-6 rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          No financial statement data has been recorded yet. The tables below are a valid empty planning view, not a database failure.
+        </section>
+      ) : null}
 
       <section className="panel mb-6 p-5 no-print">
         <div className="flex flex-wrap items-end gap-4">
@@ -469,10 +472,19 @@ export default async function CustomerStatementsPage({
       <section className="panel mb-8 overflow-hidden">
         <div className="border-b border-[#d7ded9] p-5">
           <h2 className="text-2xl font-bold">Business Profit and Loss</h2>
-          <p className="text-[#5c6963]">
-            Optional for self-employed and business clients. {selectedMonth.month} {year} profit:{" "}
-            <strong>{formatCurrency(selectedBusinessSummary.profit)}</strong>. {year} annual profit:{" "}
-            <strong>{formatCurrency(annualBusinessSummary.profit)}</strong>.
+          <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+            <p className="font-semibold">
+              {selectedMonth.month} {year} calculated profit:{" "}
+              <strong>{formatCurrency(selectedBusinessSummary.profit)}</strong>
+            </p>
+            <p className="mt-1 text-sm">
+              {year} calculated annual profit:{" "}
+              <strong>{formatCurrency(annualBusinessSummary.profit)}</strong>
+            </p>
+          </div>
+          <h3 className="mt-4 text-lg font-bold">All recorded P&amp;L inputs</h3>
+          <p className="mt-1 text-sm text-[#5c6963]">
+            These are source records across reporting periods. Depending on their date and frequency, not every row contributes to the selected month above.
           </p>
         </div>
         <div className="table-wrap">

@@ -4,11 +4,14 @@ import test from "node:test";
 import {
   buildFinancialRatios,
   buildMonthlyCashFlow,
+  buildMonthlyFinancialOverview,
   buildMonthlyProfitAndLoss,
   buildProfitAndLossSummary,
   cashFlowAmountForMonth,
+  statementCalendarDate,
   statementItemsForMonth,
 } from "../lib/cfp/financial-analysis.ts";
+import { formatDate } from "../lib/cfp/format.ts";
 
 let itemId = 0;
 
@@ -23,7 +26,7 @@ function statementItem(statementType, itemType, category, amount, overrides = {}
     category,
     description: category,
     amount,
-    frequency: statementType === "cash_flow" ? "monthly" : "current_value",
+    frequency: statementType === "balance_sheet" ? "current" : "monthly",
     statement_date: "2026-01-01",
     ...overrides,
   };
@@ -248,5 +251,118 @@ test("calculates mixed-frequency monthly and annual business profit for the sele
     revenue: 121_200,
     costs: 32_040,
     profit: 89_160,
+  });
+});
+
+test("uses one shared period calculation for overview and detailed reporting", () => {
+  const items = [
+    statementItem("cash_flow", "income", "Monthly salary", 8_000, {
+      frequency: "monthly",
+      statement_date: "2026-06-15",
+    }),
+    statementItem("cash_flow", "expense", "Weekly living costs", 120, {
+      frequency: "weekly",
+      statement_date: "2026-06-15",
+    }),
+    statementItem("profit_loss", "revenue", "Monthly sales", 10_000, {
+      frequency: "monthly",
+      statement_date: "2026-06-15",
+    }),
+    statementItem("profit_loss", "cost", "Quarterly supplies", 300, {
+      frequency: "quarterly",
+      statement_date: "2026-06-15",
+    }),
+  ];
+
+  const overview = buildMonthlyFinancialOverview(items, 2026, 5);
+
+  assert.deepEqual(overview.cashFlow, buildMonthlyCashFlow(items, 2026)[5]);
+  assert.deepEqual(
+    overview.profitAndLoss,
+    buildProfitAndLossSummary(items, 2026, 5),
+  );
+  assert.equal(overview.cashFlow.surplus, 7_480);
+  assert.equal(overview.profitAndLoss.profit, 9_900);
+  assert.equal(buildMonthlyFinancialOverview(items, 2026, 4).cashFlow.income, 0);
+  assert.equal(
+    buildMonthlyFinancialOverview(items, 2026, 4).profitAndLoss.revenue,
+    0,
+  );
+});
+
+test("keeps date-only boundaries and mixed frequencies invariant across timezones", () => {
+  const items = [
+    statementItem("profit_loss", "revenue", "Mid-year monthly revenue", 1_000, {
+      frequency: "monthly",
+      statement_date: "2026-06-15",
+    }),
+    statementItem("profit_loss", "expense", "Mid-year weekly cost", 120, {
+      frequency: "weekly",
+      statement_date: "2026-06-15",
+    }),
+    statementItem("profit_loss", "cost", "Mid-year quarterly cost", 300, {
+      frequency: "quarterly",
+      statement_date: "2026-06-15",
+    }),
+    statementItem("profit_loss", "revenue", "January annual revenue", 1_200, {
+      frequency: "annual",
+      statement_date: "2026-01-01",
+    }),
+    statementItem("profit_loss", "cost", "January one-time cost", 500, {
+      frequency: "one_time",
+      statement_date: "2026-01-01",
+    }),
+    statementItem("profit_loss", "revenue", "December one-time revenue", 700, {
+      frequency: "one_time",
+      statement_date: "2026-12-31",
+    }),
+    statementItem("profit_loss", "revenue", "Future monthly revenue", 9_999, {
+      frequency: "monthly",
+      statement_date: "2027-01-01",
+    }),
+  ];
+
+  assert.deepEqual(statementCalendarDate(items[3]), {
+    year: 2026,
+    monthIndex: 0,
+    day: 1,
+  });
+  assert.deepEqual(statementCalendarDate(items[5]), {
+    year: 2026,
+    monthIndex: 11,
+    day: 31,
+  });
+  assert.equal(formatDate("2026-01-01"), "Jan 1, 2026");
+  assert.equal(formatDate("2026-12-31"), "Dec 31, 2026");
+
+  assert.deepEqual(buildProfitAndLossSummary(items, 2026, 0), {
+    revenue: 1_200,
+    costs: 500,
+    profit: 700,
+  });
+  assert.deepEqual(buildProfitAndLossSummary(items, 2026, 4), {
+    revenue: 0,
+    costs: 0,
+    profit: 0,
+  });
+  assert.deepEqual(buildProfitAndLossSummary(items, 2026, 5), {
+    revenue: 1_000,
+    costs: 620,
+    profit: 380,
+  });
+  assert.deepEqual(buildProfitAndLossSummary(items, 2026, 11), {
+    revenue: 1_700,
+    costs: 620,
+    profit: 1_080,
+  });
+  assert.deepEqual(buildProfitAndLossSummary(items, 2026), {
+    revenue: 8_900,
+    costs: 4_840,
+    profit: 4_060,
+  });
+  assert.deepEqual(buildProfitAndLossSummary(items, 2027, 0), {
+    revenue: 12_199,
+    costs: 620,
+    profit: 11_579,
   });
 });

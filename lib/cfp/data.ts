@@ -10,6 +10,10 @@ import {
 import { dateTimeValue } from "./format";
 import { statusRank } from "./status";
 import { canAccessCustomer, filterOperationalCustomersForAccess, requireCurrentAccess } from "./access";
+import {
+  financialStatementErrorMessage,
+  financialStatementItemSelect,
+} from "./financial-statement-schema";
 
 export type DashboardData = {
   configured: boolean;
@@ -32,6 +36,7 @@ export type CustomerAuditLog = {
 };
 
 const inactiveServiceStatuses = new Set(["inactive", "ended", "no longer servicing", "no_longer_servicing"]);
+const customerActivityWindowLimit = 50;
 
 function isInactiveCustomer(customer: Pick<Customer, "service_status">) {
   return inactiveServiceStatuses.has(String(customer.service_status || "").trim().toLowerCase());
@@ -138,19 +143,45 @@ export async function getCustomersData(filter: CustomerServiceFilter = "active")
 export async function getCustomerDetail(id: string) {
   const access = await requireCurrentAccess();
   const supabase = await createCfpServerClient();
-  if (!supabase) return { configured: false };
+  if (!supabase) return { configured: false, statementError: null };
 
-  const [customerResult, goalsResult, actionsResult, statementsResult, submissionsResult, auditResult] = await Promise.all([
+  const [
+    customerResult,
+    goalsResult,
+    actionsResult,
+    statementsResult,
+    submissionsResult,
+    auditResult,
+    auditCountResult,
+  ] = await Promise.all([
     supabase.from("customers").select("*").eq("id", id).single(),
     supabase.from("financial_goals").select("*").eq("customer_id", id).order("target_date"),
     supabase.from("next_step_actions").select("*").eq("customer_id", id).order("due_date", { ascending: true }),
-    supabase.from("financial_statement_items").select("*").eq("customer_id", id).order("created_at", { ascending: true }),
+    supabase
+      .from("financial_statement_items")
+      .select(financialStatementItemSelect)
+      .eq("customer_id", id)
+      .order("created_at", { ascending: true }),
     supabase.from("pending_client_submissions").select("*").eq("customer_id", id).order("created_at", { ascending: false }),
-    supabase.from("audit_logs").select("*").eq("customer_id", id).order("created_at", { ascending: false }).limit(50),
+    supabase
+      .from("audit_logs")
+      .select("*")
+      .eq("customer_id", id)
+      .order("created_at", { ascending: false })
+      .limit(customerActivityWindowLimit),
+    supabase
+      .from("audit_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("customer_id", id),
   ]);
   const customer = customerResult.data as Customer | null;
   if (customer && !canAccessCustomer(access, customer)) {
-    return { configured: true, customer: null, error: "You do not have access to this customer." };
+    return {
+      configured: true,
+      customer: null,
+      statementError: null,
+      error: "You do not have access to this customer.",
+    };
   }
 
   const allGoals = (goalsResult.data ?? []) as FinancialGoal[];
@@ -163,6 +194,9 @@ export async function getCustomerDetail(id: string) {
   const logs = (logsResult.data ?? []) as GoalProgressLog[];
   const latestLogsByGoal: Record<string, GoalProgressLog> = {};
   for (const log of logs) latestLogsByGoal[log.goal_id] ||= log;
+  const statementError = statementsResult.error
+    ? financialStatementErrorMessage(statementsResult.error)
+    : null;
 
   return {
     configured: true,
@@ -172,17 +206,21 @@ export async function getCustomerDetail(id: string) {
     logs,
     actions: (actionsResult.data ?? []) as NextStepAction[],
     statementItems: (statementsResult.data ?? []) as FinancialStatementItem[],
+    statementError,
     pendingSubmissions: (submissionsResult.data ?? []) as PendingClientSubmission[],
     auditLogs: (auditResult.data ?? []) as CustomerAuditLog[],
+    activityTotalCount: auditCountResult.count ?? (auditResult.data ?? []).length,
+    activityWindowLimit: customerActivityWindowLimit,
     latestLogsByGoal,
     error:
       customerResult.error?.message ||
       goalsResult.error?.message ||
       logsResult.error?.message ||
       actionsResult.error?.message ||
-      statementsResult.error?.message ||
+      statementError ||
       submissionsResult.error?.message ||
-      auditResult.error?.message,
+      auditResult.error?.message ||
+      auditCountResult.error?.message,
   };
 }
 

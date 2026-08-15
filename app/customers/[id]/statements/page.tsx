@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { PrintPlanButton } from "@/app/customers/[id]/plan/print-button";
-import { AppShell, PageHeader } from "@/app/ui";
+import { AppShell, ErrorNotice, PageHeader } from "@/app/ui";
 import {
   buildFinancialRatios,
   buildMonthlyCashFlow,
@@ -154,6 +154,34 @@ export default async function CustomerStatementsPage({
   if (!data.configured || !data.customer) notFound();
 
   const customer = data.customer;
+  const headerActions = (
+    <div className="flex flex-wrap gap-2">
+      <PrintPlanButton />
+      <Link className="btn btn-secondary no-print" href={`/customers/${id}`}>
+        Back to Customer
+      </Link>
+    </div>
+  );
+
+  if (data.statementError) {
+    return (
+      <AppShell>
+        <PageHeader
+          eyebrow="Financial reports"
+          title={customer.full_name}
+          actions={headerActions}
+        />
+        <ErrorNotice message={data.statementError} />
+        <section className="panel p-5">
+          <h2 className="text-xl font-bold">Financial report unavailable</h2>
+          <p className="mt-2 text-sm text-[#5c6963]">
+            Statement data could not be loaded, so no balances, ratios, or profit figures are being shown. Resolve the database error and retry.
+          </p>
+        </section>
+      </AppShell>
+    );
+  }
+
   const items = data.statementItems ?? [];
   const requestedYear = Number(query.year);
   const years = availableYears(items, requestedYear);
@@ -186,22 +214,22 @@ export default async function CustomerStatementsPage({
   const liabilities = lineItems(balanceItems, "balance_sheet", "liability");
   const netWorth = total(assets) - total(liabilities);
   const profitLossItems = items.filter((item) => item.statement_type === "profit_loss");
-  const businessProfit = buildProfitAndLossSummary(profitLossItems).profit;
+  const selectedBusinessSummary = buildProfitAndLossSummary(
+    profitLossItems,
+    year,
+    monthIndex,
+  );
+  const annualBusinessSummary = buildProfitAndLossSummary(profitLossItems, year);
 
   return (
     <AppShell>
       <PageHeader
         eyebrow="Financial reports"
         title={customer.full_name}
-        actions={
-          <div className="flex flex-wrap gap-2">
-            <PrintPlanButton />
-            <Link className="btn btn-secondary no-print" href={`/customers/${id}`}>
-              Back to Customer
-            </Link>
-          </div>
-        }
+        actions={headerActions}
       />
+
+      <ErrorNotice message={data.error} />
 
       <section className="panel mb-6 p-5 no-print">
         <div className="flex flex-wrap items-end gap-4">
@@ -442,8 +470,9 @@ export default async function CustomerStatementsPage({
         <div className="border-b border-[#d7ded9] p-5">
           <h2 className="text-2xl font-bold">Business Profit and Loss</h2>
           <p className="text-[#5c6963]">
-            Optional for self-employed and business clients. Recorded profit:{" "}
-            <strong>{formatCurrency(businessProfit)}</strong>.
+            Optional for self-employed and business clients. {selectedMonth.month} {year} profit:{" "}
+            <strong>{formatCurrency(selectedBusinessSummary.profit)}</strong>. {year} annual profit:{" "}
+            <strong>{formatCurrency(annualBusinessSummary.profit)}</strong>.
           </p>
         </div>
         <div className="table-wrap">

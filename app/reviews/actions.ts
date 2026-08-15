@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { accessDisplayName, requireCurrentAccess } from "@/lib/cfp/access";
+import { financialStatementErrorMessage } from "@/lib/cfp/financial-statement-schema";
 import { createCfpServerClient, type Customer, type PendingClientSubmission } from "@/lib/cfp/supabase";
 import { evaluateGoalHealth } from "@/lib/cfp/status";
 
@@ -76,7 +77,7 @@ export async function reviewPersonalSubmission(formData: FormData) {
     const payload = submission.payload || {};
     if (submission.submission_type === "financial_statement_item") {
       const { error } = await supabase.from("financial_statement_items").insert({ ...payload, customer_id: customer.id });
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(financialStatementErrorMessage(error));
     } else if (submission.submission_type === "financial_statement_import") {
       const rows = Array.isArray(payload.rows) ? payload.rows : [];
       const { error } = await supabase.from("financial_statement_items").insert(

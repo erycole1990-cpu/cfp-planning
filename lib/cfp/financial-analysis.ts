@@ -27,6 +27,11 @@ export type ProfitAndLossSummary = {
   profit: number;
 };
 
+export type MonthlyProfitAndLoss = ProfitAndLossSummary & {
+  monthIndex: number;
+  month: string;
+};
+
 const monthLabels = [
   "January",
   "February",
@@ -375,18 +380,55 @@ export function buildFinancialRatios(
   ];
 }
 
-export function buildProfitAndLossSummary(
+export function buildMonthlyProfitAndLoss(
   items: FinancialStatementItem[],
-): ProfitAndLossSummary {
+  year: number,
+) {
   const profitAndLossItems = items.filter(
     (item) => item.statement_type === "profit_loss",
   );
-  const revenue = sumItems(profitAndLossItems, ["revenue"]);
-  const costs = sumItems(profitAndLossItems, ["cost", "expense"]);
 
-  return {
-    revenue,
-    costs,
-    profit: revenue - costs,
-  };
+  return monthLabels.map<MonthlyProfitAndLoss>((month, monthIndex) => {
+    const revenue = profitAndLossItems
+      .filter((item) => item.item_type === "revenue")
+      .reduce(
+        (sum, item) => sum + cashFlowAmountForMonth(item, year, monthIndex),
+        0,
+      );
+    const costs = profitAndLossItems
+      .filter((item) => ["cost", "expense"].includes(item.item_type))
+      .reduce(
+        (sum, item) => sum + cashFlowAmountForMonth(item, year, monthIndex),
+        0,
+      );
+
+    return {
+      monthIndex,
+      month,
+      revenue,
+      costs,
+      profit: revenue - costs,
+    };
+  });
+}
+
+export function buildProfitAndLossSummary(
+  items: FinancialStatementItem[],
+  year: number,
+  monthIndex?: number,
+): ProfitAndLossSummary {
+  const months = buildMonthlyProfitAndLoss(items, year);
+  const periods =
+    monthIndex === undefined
+      ? months
+      : months.filter((month) => month.monthIndex === monthIndex);
+
+  return periods.reduce<ProfitAndLossSummary>(
+    (summary, month) => ({
+      revenue: summary.revenue + month.revenue,
+      costs: summary.costs + month.costs,
+      profit: summary.profit + month.profit,
+    }),
+    { revenue: 0, costs: 0, profit: 0 },
+  );
 }

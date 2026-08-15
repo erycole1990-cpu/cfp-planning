@@ -592,6 +592,14 @@ export default async function CustomerDetailPage({
     (activityPage - 1) * activityPageSize,
     activityPage * activityPageSize,
   );
+  const activityTotalCount = data.activityTotalCount ?? activity.length;
+  const activityWindowLimit = data.activityWindowLimit ?? activity.length;
+  const activityWindowLimited = activityTotalCount > activity.length;
+  const activityCountLabel = activityWindowLimited
+    ? selectedActivityCategory === "all"
+      ? `Latest ${activity.length} of ${activityTotalCount} records`
+      : `${filteredActivity.length} matches in latest ${activity.length} of ${activityTotalCount} records`
+    : `${filteredActivity.length} records`;
 
   const sortedGoals = (data.goals ?? []).slice().sort((a, b) => {
     const priorityDelta =
@@ -945,6 +953,14 @@ export default async function CustomerDetailPage({
             </div>
           </section>
 
+          {data.statementError ? (
+            <section id="financial-statements" className="panel p-5">
+              <h2 className="text-2xl font-bold">Financial Statements</h2>
+              <p className="mt-2 text-sm text-[#68756f]">
+                Statement data could not be loaded, so no balances or financial summaries are being shown. Resolve the database error above and retry.
+              </p>
+            </section>
+          ) : (
           <section id="financial-statements" className="panel p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -1065,6 +1081,7 @@ export default async function CustomerDetailPage({
               />
             </div>
           </section>
+          )}
 
           <section className="space-y-4">
             <div id="goal-setting-list" className="panel p-5">
@@ -1424,8 +1441,13 @@ export default async function CustomerDetailPage({
                 <h2 className="text-xl font-bold">Customer activity</h2>
                 <p className="mt-1 text-sm text-[#68756f]">Profile, planning, assignment, and review changes in one timeline.</p>
               </div>
-              <span className="text-sm font-semibold text-[#68756f]">{filteredActivity.length} records</span>
+              <span className="text-sm font-semibold text-[#68756f]">{activityCountLabel}</span>
             </div>
+            {activityWindowLimited ? (
+              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                Filters and pages on this screen cover the latest {activity.length} records. The full audit history contains {activityTotalCount} records; older records remain retained but are not included in this customer view. This view is capped at {activityWindowLimit} records.
+              </p>
+            ) : null}
             <form className="mt-4 flex flex-wrap items-end gap-3 no-print" method="get">
               <label className="field min-w-56">
                 <span className="label">Activity category</span>

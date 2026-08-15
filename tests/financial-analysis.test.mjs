@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildFinancialRatios,
   buildMonthlyCashFlow,
+  buildMonthlyProfitAndLoss,
   buildProfitAndLossSummary,
   cashFlowAmountForMonth,
   statementItemsForMonth,
@@ -135,17 +136,117 @@ test("returns unassessed ratios when recorded data has no usable denominator", (
   assert.ok(ratios.every((ratio) => ratio.displayValue === "Not assessed"));
 });
 
-test("subtracts both direct costs and operating expenses from business revenue", () => {
-  const summary = buildProfitAndLossSummary([
-    statementItem("profit_loss", "revenue", "Sales", 20_000),
-    statementItem("profit_loss", "cost", "Cost of goods", 7_000),
-    statementItem("profit_loss", "expense", "Operating expenses", 3_000),
-    statementItem("cash_flow", "expense", "Personal spending", 9_000),
-  ]);
+test("normalizes monthly, weekly, and quarterly business entries by reporting month", () => {
+  const items = [
+    statementItem("profit_loss", "revenue", "Monthly sales", 10_000),
+    statementItem("profit_loss", "expense", "Monthly operating expenses", 2_000),
+    statementItem("profit_loss", "expense", "Weekly payroll", 120, {
+      frequency: "weekly",
+    }),
+    statementItem("profit_loss", "cost", "Quarterly supplies", 300, {
+      frequency: "quarterly",
+    }),
+  ];
 
-  assert.deepEqual(summary, {
-    revenue: 20_000,
-    costs: 10_000,
-    profit: 10_000,
+  const months = buildMonthlyProfitAndLoss(items, 2026);
+
+  assert.deepEqual(
+    {
+      revenue: months[0].revenue,
+      costs: months[0].costs,
+      profit: months[0].profit,
+    },
+    { revenue: 10_000, costs: 2_620, profit: 7_380 },
+  );
+  assert.deepEqual(
+    {
+      revenue: months[11].revenue,
+      costs: months[11].costs,
+      profit: months[11].profit,
+    },
+    { revenue: 10_000, costs: 2_620, profit: 7_380 },
+  );
+});
+
+test("places annual and one-time business items in their dated reporting periods", () => {
+  const items = [
+    statementItem("profit_loss", "revenue", "Annual contract", 1_200, {
+      frequency: "annual",
+      statement_date: "2026-09-01",
+    }),
+    statementItem("profit_loss", "cost", "One-time setup", 600, {
+      frequency: "one_time",
+      statement_date: "2026-04-01",
+    }),
+    statementItem("profit_loss", "expense", "Prior-year one-time cost", 900, {
+      frequency: "one_time",
+      statement_date: "2025-04-01",
+    }),
+    statementItem("profit_loss", "revenue", "Future monthly sales", 5_000, {
+      frequency: "monthly",
+      statement_date: "2027-01-01",
+    }),
+  ];
+
+  assert.deepEqual(buildProfitAndLossSummary(items, 2026, 3), {
+    revenue: 0,
+    costs: 600,
+    profit: -600,
+  });
+  assert.deepEqual(buildProfitAndLossSummary(items, 2026, 8), {
+    revenue: 1_200,
+    costs: 0,
+    profit: 1_200,
+  });
+  assert.deepEqual(buildProfitAndLossSummary(items, 2026), {
+    revenue: 1_200,
+    costs: 600,
+    profit: 600,
+  });
+});
+
+test("calculates mixed-frequency monthly and annual business profit for the selected year", () => {
+  const items = [
+    statementItem("profit_loss", "revenue", "Monthly sales", 10_000),
+    statementItem("profit_loss", "expense", "Monthly operating expenses", 2_000),
+    statementItem("profit_loss", "expense", "Weekly payroll", 120, {
+      frequency: "weekly",
+    }),
+    statementItem("profit_loss", "cost", "Quarterly supplies", 300, {
+      frequency: "quarterly",
+    }),
+    statementItem("profit_loss", "revenue", "Annual contract", 1_200, {
+      frequency: "annual",
+      statement_date: "2026-09-01",
+    }),
+    statementItem("profit_loss", "cost", "One-time setup", 600, {
+      frequency: "one_time",
+      statement_date: "2026-04-01",
+    }),
+    statementItem("profit_loss", "expense", "Prior-year one-time cost", 900, {
+      frequency: "one_time",
+      statement_date: "2025-04-01",
+    }),
+    statementItem("profit_loss", "revenue", "Future monthly sales", 5_000, {
+      frequency: "monthly",
+      statement_date: "2027-01-01",
+    }),
+    statementItem("cash_flow", "expense", "Personal spending", 9_000),
+  ];
+
+  assert.deepEqual(buildProfitAndLossSummary(items, 2026, 3), {
+    revenue: 10_000,
+    costs: 3_220,
+    profit: 6_780,
+  });
+  assert.deepEqual(buildProfitAndLossSummary(items, 2026, 8), {
+    revenue: 11_200,
+    costs: 2_620,
+    profit: 8_580,
+  });
+  assert.deepEqual(buildProfitAndLossSummary(items, 2026), {
+    revenue: 121_200,
+    costs: 32_040,
+    profit: 89_160,
   });
 });

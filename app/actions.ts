@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { evaluateGoalHealth } from "@/lib/cfp/status";
 import { createCfpServerClient, type Customer } from "@/lib/cfp/supabase";
 import { accessDisplayName, canAccessCustomer, getCurrentAccess, isPersonalCustomer, requireCurrentAccess } from "@/lib/cfp/access";
+import { financialStatementErrorMessage } from "@/lib/cfp/financial-statement-schema";
 import { createClient as createSessionSupabaseClient } from "@/lib/supabase/server";
 
 async function requireSupabase() {
@@ -452,7 +453,7 @@ export async function createFinancialStatementItem(formData: FormData) {
   }
 
   const { data, error } = await supabase.from("financial_statement_items").insert(payload).select("id").single();
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(financialStatementErrorMessage(error));
 
   await writeAudit({
     actor,

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { completeNextStepAction } from "./actions";
 import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge, StatCard, StatusBadge } from "./ui";
-import { formatCurrency, formatDate } from "@/lib/cfp/format";
+import { formatCurrency, formatDate, isPlanningDateWithinDays } from "@/lib/cfp/format";
 import { getDashboardData } from "@/lib/cfp/data";
 import { requireCurrentAccess } from "@/lib/cfp/access";
 import { evaluateGoalHealth } from "@/lib/cfp/status";
@@ -10,12 +10,7 @@ import { evaluateGoalHealth } from "@/lib/cfp/status";
 export const dynamic = "force-dynamic";
 
 function isDueThisWeek(date: string | null) {
-  if (!date) return false;
-  const now = new Date();
-  const end = new Date();
-  end.setDate(now.getDate() + 7);
-  const due = new Date(`${date}T00:00:00`);
-  return due >= new Date(now.toDateString()) && due <= end;
+  return isPlanningDateWithinDays(date, 7);
 }
 
 export default async function Home({

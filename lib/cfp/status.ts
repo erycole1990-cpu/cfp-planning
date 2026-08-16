@@ -1,3 +1,5 @@
+import { planningDayNumber, planningTimeZone } from "./format.ts";
+
 export type RagStatus = "on_track" | "at_risk" | "off_track" | "unreviewed";
 
 export type GoalHealthEvaluation = {
@@ -14,6 +16,7 @@ type GoalHealthInput = {
   createdAt: string | Date;
   targetDate: string | Date;
   now?: Date;
+  timeZone?: string;
 };
 
 const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
@@ -42,14 +45,19 @@ export function evaluateGoalHealth(input: GoalHealthInput): GoalHealthEvaluation
     };
   }
 
-  const createdAt = new Date(input.createdAt);
-  const targetDate = new Date(input.targetDate);
   const now = input.now ?? new Date();
   const progressRatio = currentAmount / targetAmount;
   const progressPercent = percent(progressRatio);
 
-  const totalMs = targetDate.getTime() - createdAt.getTime();
-  if (!Number.isFinite(createdAt.getTime()) || !Number.isFinite(targetDate.getTime())) {
+  let createdDay: number;
+  let targetDay: number;
+  let currentDay: number;
+  try {
+    const timeZone = planningTimeZone(input.timeZone);
+    createdDay = planningDayNumber(input.createdAt, timeZone);
+    targetDay = planningDayNumber(input.targetDate, timeZone);
+    currentDay = planningDayNumber(now, timeZone);
+  } catch {
     return {
       status: "unreviewed",
       score: null,
@@ -59,7 +67,8 @@ export function evaluateGoalHealth(input: GoalHealthInput): GoalHealthEvaluation
     };
   }
 
-  if (totalMs <= 0) {
+  const totalDays = targetDay - createdDay;
+  if (totalDays <= 0) {
     const complete = currentAmount >= targetAmount;
     return {
       status: complete ? "on_track" : "off_track",
@@ -74,8 +83,8 @@ export function evaluateGoalHealth(input: GoalHealthInput): GoalHealthEvaluation
     };
   }
 
-  const elapsedMs = Math.max(0, now.getTime() - createdAt.getTime());
-  const timeRatio = clamp(elapsedMs / totalMs, 0, 1);
+  const elapsedDays = Math.max(0, currentDay - createdDay);
+  const timeRatio = clamp(elapsedDays / totalDays, 0, 1);
   const expectedPercent = percent(timeRatio);
   const funded = progressRatio >= 1;
   const status: RagStatus = funded || progressRatio >= timeRatio ? "on_track" : progressRatio >= timeRatio - 0.1 ? "at_risk" : "off_track";

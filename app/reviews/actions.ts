@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { accessDisplayName, requireCurrentAccess } from "@/lib/cfp/access";
-import { financialStatementErrorMessage } from "@/lib/cfp/financial-statement-schema";
+import {
+  financialStatementErrorMessage,
+  logFinancialStatementDatabaseError,
+} from "@/lib/cfp/financial-statement-schema";
 import { createCfpServerClient, type Customer, type PendingClientSubmission } from "@/lib/cfp/supabase";
 import { evaluateGoalHealth } from "@/lib/cfp/status";
 
@@ -77,13 +80,19 @@ export async function reviewPersonalSubmission(formData: FormData) {
     const payload = submission.payload || {};
     if (submission.submission_type === "financial_statement_item") {
       const { error } = await supabase.from("financial_statement_items").insert({ ...payload, customer_id: customer.id });
-      if (error) throw new Error(financialStatementErrorMessage(error));
+      if (error) {
+        logFinancialStatementDatabaseError("reviewPersonalSubmission.statementItem", error);
+        throw new Error(financialStatementErrorMessage(error, "save"));
+      }
     } else if (submission.submission_type === "financial_statement_import") {
       const rows = Array.isArray(payload.rows) ? payload.rows : [];
       const { error } = await supabase.from("financial_statement_items").insert(
         rows.map((row) => ({ ...(row as Record<string, unknown>), customer_id: customer.id })),
       );
-      if (error) throw new Error(error.message);
+      if (error) {
+        logFinancialStatementDatabaseError("reviewPersonalSubmission.statementImport", error);
+        throw new Error(financialStatementErrorMessage(error, "save"));
+      }
     } else if (submission.submission_type === "goal_progress") {
       const goalId = String(payload.goal_id || "");
       const loggedAmount = Number(payload.logged_amount);

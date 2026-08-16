@@ -1,71 +1,142 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
   buildActivityWindowPresentation,
-  resolveActivityTotalCount,
+  resolveActivityLoadState,
 } from "../lib/cfp/activity-window.ts";
-import { resolveFinancialStatementState } from "../lib/cfp/financial-statement-state.ts";
+import { resolveFinancialStatementReportState } from "../lib/cfp/financial-statement-state.ts";
 
-test("statement query failure blocks financial calculation input", () => {
-  const state = resolveFinancialStatementState(
+test("statement query failure prevents every financial report calculation", () => {
+  let buildCalls = 0;
+  const state = resolveFinancialStatementReportState(
     [{ id: "statement-1", amount: 10_000 }],
     "Database connection timed out",
+    () => {
+      buildCalls += 1;
+      return { balances: 10_000, ratios: ["invalid"] };
+    },
   );
 
   assert.deepEqual(state, {
     status: "error",
     error: "Database connection timed out",
     items: null,
+    report: null,
   });
+  assert.equal(buildCalls, 0);
 });
 
-test("successful query with no statements remains a valid empty state", () => {
-  const state = resolveFinancialStatementState([], null);
+test("successful query with no statements builds a valid empty report", () => {
+  let buildCalls = 0;
+  const state = resolveFinancialStatementReportState([], null, (items) => {
+    buildCalls += 1;
+    return { balances: items.length, ratios: [] };
+  });
 
   assert.deepEqual(state, {
     status: "empty",
     error: null,
     items: [],
+    report: { balances: 0, ratios: [] },
   });
+  assert.equal(buildCalls, 1);
 });
 
-test("successful statement data remains available for calculation", () => {
+test("successful statement data remains available to its report builder", () => {
   const items = [{ id: "statement-1", amount: 10_000 }];
-  const state = resolveFinancialStatementState(items, null);
+  const state = resolveFinancialStatementReportState(items, null, (availableItems) => ({
+    total: availableItems.reduce((sum, item) => sum + item.amount, 0),
+  }));
 
   assert.equal(state.status, "ready");
   assert.equal(state.error, null);
   assert.equal(state.items, items);
+  assert.deepEqual(state.report, { total: 10_000 });
 });
 
-test("statements page returns the error state before financial calculations", () => {
-  const pageSource = readFileSync(
-    new URL("../app/customers/[id]/statements/page.tsx", import.meta.url),
-    "utf8",
+test("successful empty activity is distinct from an activity load failure", () => {
+  assert.deepEqual(
+    resolveActivityLoadState({
+      records: [],
+      recordError: null,
+      totalCount: 0,
+      countError: null,
+    }),
+    {
+      status: "empty",
+      error: null,
+      records: [],
+      totalCount: 0,
+      countError: null,
+    },
   );
-  const errorGuard = pageSource.indexOf('if (statementState.status === "error")');
-  const overviewCalculation = pageSource.indexOf(
-    "buildMonthlyFinancialOverview(items, year, monthIndex)",
-  );
-  const ratioCalculation = pageSource.indexOf(
-    "buildFinancialRatios(items, monthlyCashFlow, year)",
-  );
+});
 
-  assert.ok(errorGuard >= 0);
-  assert.ok(overviewCalculation > errorGuard);
-  assert.ok(ratioCalculation > errorGuard);
-  assert.match(pageSource, /no balances, ratios, or profit figures are being shown/i);
-  assert.match(pageSource, /valid empty planning view, not a database failure/i);
+test("loaded activity remains usable when only the exact count fails", () => {
+  const records = [{ id: "audit-1" }];
+  assert.deepEqual(
+    resolveActivityLoadState({
+      records,
+      recordError: null,
+      totalCount: 50,
+      countError: "Count query timed out",
+    }),
+    {
+      status: "ready",
+      error: null,
+      records,
+      totalCount: null,
+      countError: "Count query timed out",
+    },
+  );
+});
+
+test("activity record failure cannot become an empty or counted history", () => {
+  assert.deepEqual(
+    resolveActivityLoadState({
+      records: [],
+      recordError: "Activity history could not be loaded. Please retry.",
+      totalCount: 83,
+      countError: null,
+    }),
+    {
+      status: "error",
+      error: "Activity history could not be loaded. Please retry.",
+      records: null,
+      totalCount: null,
+      countError: null,
+    },
+  );
+});
+
+test("successful activity records and exact count remain available together", () => {
+  const records = [{ id: "audit-1" }, { id: "audit-2" }];
+  const state = resolveActivityLoadState({
+    records,
+    recordError: null,
+    totalCount: 83,
+    countError: null,
+  });
+
+  assert.equal(state.status, "ready");
+  assert.equal(state.records, records);
+  assert.equal(state.totalCount, 83);
+  assert.equal(state.countError, null);
 });
 
 test("activity count failure keeps the latest-window disclosure open", () => {
-  const totalCount = resolveActivityTotalCount(50, "Count query timed out");
+  const state = resolveActivityLoadState({
+    records: Array.from({ length: 50 }, (_, index) => ({ id: `audit-${index}` })),
+    recordError: null,
+    totalCount: 50,
+    countError: "Count query timed out",
+  });
+  assert.notEqual(state.status, "error");
   const presentation = buildActivityWindowPresentation({
-    loadedCount: 50,
+    loadedCount: state.records.length,
     filteredCount: 12,
-    totalCount,
+    totalCount: state.totalCount,
     windowLimit: 50,
     filterIsAll: false,
   });

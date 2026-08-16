@@ -12,7 +12,13 @@ import {
   updateGoalPriority,
 } from "@/app/actions";
 import { AppShell, EmptyState, EnvNotice, ErrorNotice, PageHeader, PriorityBadge, StatusBadge } from "@/app/ui";
-import { dateTimeValue, formatCurrency, formatDate, toDateInputValue } from "@/lib/cfp/format";
+import {
+  dateTimeValue,
+  formatCurrency,
+  formatDate,
+  planningCalendarDate,
+  planningYearsUntil,
+} from "@/lib/cfp/format";
 import { getCustomerDetail } from "@/lib/cfp/data";
 import { accessDisplayName, isPersonalCustomer, requireCurrentAccess } from "@/lib/cfp/access";
 import { AddGoalForm } from "./add-goal-form";
@@ -24,6 +30,7 @@ import { auditActionLabel, auditDetails, auditEntityLabel } from "@/lib/cfp/audi
 import { evaluateGoalHealth } from "@/lib/cfp/status";
 import {
   buildMonthlyFinancialOverview,
+  buildBalanceSheetSummary,
   cashFlowAmountForMonth,
   statementCalendarDate,
   type MonthlyCashFlow,
@@ -51,12 +58,7 @@ function nextPriority(priority: string, direction: "up" | "down") {
 }
 
 function yearsUntil(targetDate: string) {
-  const today = new Date();
-  const target = new Date(`${targetDate}T00:00:00`);
-  if (Number.isNaN(target.getTime())) return 0;
-
-  const years = (target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-  return Math.max(0, Math.round(years * 10) / 10);
+  return planningYearsUntil(targetDate);
 }
 
 function calculatorHref(customerId: string, goal: {
@@ -99,12 +101,6 @@ function frequencyLabel(frequency: string | null) {
 function formatStatementMonth(item: FinancialStatementItem) {
   const date = statementCalendarDate(item);
   return date ? `${monthLabels[date.monthIndex]} ${date.year}` : "Not set";
-}
-
-function sumStatementAmounts(items: FinancialStatementItem[], statementType: string, itemTypes: string[]) {
-  return items
-    .filter((item) => item.statement_type === statementType && itemTypes.includes(item.item_type))
-    .reduce((total, item) => total + (Number(item.amount) || 0), 0);
 }
 
 function isBusinessPlanningRelevant(customer: { employment_status?: string | null; occupation?: string | null } | null | undefined) {
@@ -193,6 +189,7 @@ function StatementSection({
   categories,
   showFrequency = true,
   dateLabel,
+  statementDateDefault,
   monthlySummary,
   reportingYear,
   reportingMonthIndex,
@@ -208,6 +205,7 @@ function StatementSection({
   categories: string[];
   showFrequency?: boolean;
   dateLabel?: string;
+  statementDateDefault: string;
   monthlySummary?: MonthlyCashFlow[];
   reportingYear: number;
   reportingMonthIndex: number;
@@ -257,7 +255,7 @@ function StatementSection({
         {showDate ? (
           <label className="field min-w-0">
             <span className="label">{dateLabel}</span>
-            <input className="input" name="statement_date" type="date" defaultValue={toDateInputValue(new Date())} />
+            <input className="input" name="statement_date" type="date" defaultValue={statementDateDefault} />
           </label>
         ) : null}
         <label className="field min-w-0">
@@ -533,7 +531,8 @@ export default async function CustomerDetailPage({
   const submissionOnly = access.isClient || personalOwner;
   const pendingSubmissions = (data.pendingSubmissions ?? []).filter((submission) => submission.review_status === "pending");
   const isInactiveCustomer = customer?.service_status === "inactive";
-  const today = toDateInputValue(new Date());
+  const planningDate = planningCalendarDate();
+  const today = planningDate.isoDate;
   const actionsByGoal = new Map<string, NonNullable<typeof data.actions>>();
   for (const action of data.actions ?? []) {
     if (!action.goal_id) continue;
@@ -566,13 +565,16 @@ export default async function CustomerDetailPage({
   );
   const activityTotalCount = data.activityTotalCount ?? null;
   const activityWindowLimit = data.activityWindowLimit ?? activity.length;
-  const activityPresentation = buildActivityWindowPresentation({
-    loadedCount: activity.length,
-    filteredCount: filteredActivity.length,
-    totalCount: activityTotalCount,
-    windowLimit: activityWindowLimit,
-    filterIsAll: selectedActivityCategory === "all",
-  });
+  const activityLoadError = data.activityLoadError ?? null;
+  const activityPresentation = activityLoadError
+    ? null
+    : buildActivityWindowPresentation({
+        loadedCount: activity.length,
+        filteredCount: filteredActivity.length,
+        totalCount: activityTotalCount,
+        windowLimit: activityWindowLimit,
+        filterIsAll: selectedActivityCategory === "all",
+      });
 
   const sortedGoals = (data.goals ?? []).slice().sort((a, b) => {
     const priorityDelta =
@@ -590,12 +592,12 @@ export default async function CustomerDetailPage({
   const balanceSheetItems = statementItems.filter((item) => item.statement_type === "balance_sheet");
   const cashFlowItems = statementItems.filter((item) => item.statement_type === "cash_flow");
   const profitLossItems = statementItems.filter((item) => item.statement_type === "profit_loss");
-  const totalAssets = sumStatementAmounts(statementItems, "balance_sheet", ["asset"]);
-  const totalLiabilities = sumStatementAmounts(statementItems, "balance_sheet", ["liability"]);
-  const netWorth = totalAssets - totalLiabilities;
-  const overviewDate = new Date();
-  const overviewYear = overviewDate.getFullYear();
-  const overviewMonthIndex = overviewDate.getMonth();
+  const balanceSheet = buildBalanceSheetSummary(statementItems);
+  const totalAssets = balanceSheet.totalAssets;
+  const totalLiabilities = balanceSheet.totalLiabilities;
+  const netWorth = balanceSheet.netWorth;
+  const overviewYear = planningDate.year;
+  const overviewMonthIndex = planningDate.monthIndex;
   const financialOverview = buildMonthlyFinancialOverview(
     statementItems,
     overviewYear,
@@ -988,6 +990,7 @@ export default async function CustomerDetailPage({
                 canDelete={!submissionOnly}
                 showFrequency={false}
                 dateLabel="As-at date"
+                statementDateDefault={today}
                 reportingYear={overviewYear}
                 reportingMonthIndex={overviewMonthIndex}
                 itemTypes={[
@@ -1005,6 +1008,7 @@ export default async function CustomerDetailPage({
                 actor={actor}
                 canDelete={!submissionOnly}
                 dateLabel="Date / month"
+                statementDateDefault={today}
                 monthlySummary={cashFlowMonthlySummary}
                 reportingYear={overviewYear}
                 reportingMonthIndex={overviewMonthIndex}
@@ -1063,6 +1067,7 @@ export default async function CustomerDetailPage({
                 actor={actor}
                 canDelete={!submissionOnly}
                 dateLabel="Date / month"
+                statementDateDefault={today}
                 reportingYear={overviewYear}
                 reportingMonthIndex={overviewMonthIndex}
                 itemTypes={[
@@ -1435,10 +1440,18 @@ export default async function CustomerDetailPage({
                 <p className="mt-1 text-sm text-[#68756f]">Profile, planning, assignment, and review changes in one timeline.</p>
               </div>
               <span className="text-sm font-semibold text-[#68756f]">
-                {activityPresentation.countLabel}
+                {activityLoadError ? "Unavailable" : activityPresentation?.countLabel}
               </span>
             </div>
-            {activityPresentation.disclosure ? (
+            {activityLoadError ? (
+              <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900" role="alert">
+                <p className="font-bold">Activity history could not be loaded.</p>
+                <p className="mt-1">No activity records are shown because the database request failed. Please retry.</p>
+              </div>
+            ) : null}
+            {!activityLoadError ? (
+              <>
+            {activityPresentation?.disclosure ? (
               <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                 {activityPresentation.disclosure}
               </p>
@@ -1493,6 +1506,8 @@ export default async function CustomerDetailPage({
                   {activityPage < activityPageCount ? <Link className="btn" href={activityHref(customer.id, selectedActivityCategory, activityPage + 1)}>Next</Link> : null}
                 </div>
               </div>
+            ) : null}
+              </>
             ) : null}
           </section>
         </div>

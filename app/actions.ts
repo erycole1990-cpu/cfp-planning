@@ -3,9 +3,23 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { evaluateGoalHealth } from "@/lib/cfp/status";
-import { createCfpServerClient, type Customer } from "@/lib/cfp/supabase";
+import {
+  createCfpServerClient,
+  type Customer,
+  type FinancialStatementItem,
+} from "@/lib/cfp/supabase";
 import { accessDisplayName, canAccessCustomer, getCurrentAccess, isPersonalCustomer, requireCurrentAccess } from "@/lib/cfp/access";
-import { financialStatementErrorMessage } from "@/lib/cfp/financial-statement-schema";
+import {
+  financialStatementErrorMessage,
+  financialStatementItemSelect,
+  logFinancialStatementDatabaseError,
+} from "@/lib/cfp/financial-statement-schema";
+import { buildPlanFinancialSnapshot } from "@/lib/cfp/financial-analysis";
+import {
+  isPlanningDateBeforeToday,
+  parseDateOnly,
+  planningCalendarDate,
+} from "@/lib/cfp/format";
 import { createClient as createSessionSupabaseClient } from "@/lib/supabase/server";
 
 async function requireSupabase() {
@@ -453,7 +467,10 @@ export async function createFinancialStatementItem(formData: FormData) {
   }
 
   const { data, error } = await supabase.from("financial_statement_items").insert(payload).select("id").single();
-  if (error) throw new Error(financialStatementErrorMessage(error));
+  if (error) {
+    logFinancialStatementDatabaseError("createFinancialStatementItem", error);
+    throw new Error(financialStatementErrorMessage(error, "save"));
+  }
 
   await writeAudit({
     actor,
@@ -477,14 +494,20 @@ export async function deleteFinancialStatementItem(formData: FormData) {
 
   const { data: item, error: itemError } = await supabase
     .from("financial_statement_items")
-    .select("*")
+    .select(financialStatementItemSelect)
     .eq("id", itemId)
     .eq("customer_id", customerId)
     .single();
-  if (itemError) throw new Error(itemError.message);
+  if (itemError) {
+    logFinancialStatementDatabaseError("deleteFinancialStatementItem.read", itemError);
+    throw new Error(financialStatementErrorMessage(itemError));
+  }
 
   const { error } = await supabase.from("financial_statement_items").delete().eq("id", itemId).eq("customer_id", customerId);
-  if (error) throw new Error(error.message);
+  if (error) {
+    logFinancialStatementDatabaseError("deleteFinancialStatementItem.delete", error);
+    throw new Error(financialStatementErrorMessage(error, "save"));
+  }
 
   await writeAudit({
     actor,
@@ -546,7 +569,10 @@ export async function importFinancialStatementItems(formData: FormData) {
   }
 
   const { error } = await supabase.from("financial_statement_items").insert(rows);
-  if (error) throw new Error(error.message);
+  if (error) {
+    logFinancialStatementDatabaseError("importFinancialStatementItems", error);
+    throw new Error(financialStatementErrorMessage(error, "save"));
+  }
 
   await writeAudit({
     actor,
@@ -565,8 +591,8 @@ export async function createGoal(formData: FormData) {
   const customerId = requiredText(formData, "customer_id");
   const { access, customer } = await requireCustomerAccess(customerId);
   const targetDate = requiredText(formData, "target_date");
-  const targetDateValue = new Date(`${targetDate}T00:00:00`);
-  if (targetDateValue < new Date(new Date().toDateString())) {
+  if (!parseDateOnly(targetDate)) throw new Error("Target date must be a valid calendar date.");
+  if (isPlanningDateBeforeToday(targetDate)) {
     throw new Error("Target date must be today or later.");
   }
 
@@ -1078,14 +1104,35 @@ export async function completeNextStepAction(formData: FormData) {
   redirect(`/customers/${customerId}?saved=completed${goalId ? `#goal-${goalId}` : ""}`);
 }
 
-function monthlyEquivalent(amountInput: unknown, frequencyInput: unknown) {
-  const amount = Number(amountInput) || 0;
-  const frequency = String(frequencyInput || "monthly");
-  if (frequency === "weekly") return (amount * 52) / 12;
-  if (frequency === "quarterly") return amount / 3;
-  if (frequency === "annual") return amount / 12;
-  if (frequency === "one_time") return 0;
-  return amount;
+function buildCurrentPlanSnapshotData({
+  customer,
+  goals,
+  statements,
+  nextActions,
+  generatedAt = new Date(),
+}: {
+  customer: Customer;
+  goals: unknown[];
+  statements: FinancialStatementItem[];
+  nextActions: unknown[];
+  generatedAt?: Date;
+}) {
+  const planningDate = planningCalendarDate(generatedAt);
+  const financialSnapshot = buildPlanFinancialSnapshot(statements, {
+    asOfDate: planningDate.isoDate,
+    year: planningDate.year,
+    monthIndex: planningDate.monthIndex,
+    timeZone: planningDate.timeZone,
+  });
+
+  return {
+    generated_at: generatedAt.toISOString(),
+    customer,
+    goals,
+    statements,
+    next_actions: nextActions,
+    ...financialSnapshot,
+  };
 }
 
 export async function createPlanDraft(formData: FormData) {
@@ -1097,43 +1144,28 @@ export async function createPlanDraft(formData: FormData) {
 
   const [goalsResult, statementsResult, actionsResult, latestResult] = await Promise.all([
     supabase.from("financial_goals").select("*").eq("customer_id", customerId).order("created_at", { ascending: true }),
-    supabase.from("financial_statement_items").select("*").eq("customer_id", customerId).order("statement_date", { ascending: false }),
+    supabase.from("financial_statement_items").select(financialStatementItemSelect).eq("customer_id", customerId).order("statement_date", { ascending: false }),
     supabase.from("next_step_actions").select("*").eq("customer_id", customerId).order("created_at", { ascending: false }),
     supabase.from("cfp_plan_documents").select("version_number").eq("customer_id", customerId).order("version_number", { ascending: false }).limit(1).maybeSingle(),
   ]);
-  const queryError = goalsResult.error || statementsResult.error || actionsResult.error || latestResult.error;
+  if (statementsResult.error) {
+    logFinancialStatementDatabaseError("createPlanDraft", statementsResult.error);
+    throw new Error(financialStatementErrorMessage(statementsResult.error));
+  }
+  const queryError = goalsResult.error || actionsResult.error || latestResult.error;
   if (queryError) throw new Error(queryError.message);
 
   const goals = goalsResult.data || [];
-  const statements = statementsResult.data || [];
+  const statements = (statementsResult.data || []) as FinancialStatementItem[];
   const nextActions = actionsResult.data || [];
-  const balanceItems = statements.filter((item) => item.statement_type === "balance_sheet");
-  const cashFlowItems = statements.filter((item) => item.statement_type === "cash_flow");
-  const assets = balanceItems.filter((item) => item.item_type === "asset").reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const liabilities = balanceItems.filter((item) => item.item_type === "liability").reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const monthlyIncome = cashFlowItems
-    .filter((item) => item.item_type === "income")
-    .reduce((sum, item) => sum + monthlyEquivalent(item.amount, item.frequency), 0);
-  const monthlyExpenses = cashFlowItems
-    .filter((item) => item.item_type === "expense")
-    .reduce((sum, item) => sum + monthlyEquivalent(item.amount, item.frequency), 0);
   const versionNumber = Number(latestResult.data?.version_number || 0) + 1;
   const title = text(formData, "title") || `${customer.full_name} CFP Plan`;
-  const snapshot = {
-    generated_at: new Date().toISOString(),
+  const snapshot = buildCurrentPlanSnapshotData({
     customer,
     goals,
     statements,
-    next_actions: nextActions,
-    summary: {
-      total_assets: assets,
-      total_liabilities: liabilities,
-      net_worth: assets - liabilities,
-      monthly_income: monthlyIncome,
-      monthly_expenses: monthlyExpenses,
-      monthly_surplus: monthlyIncome - monthlyExpenses,
-    },
-  };
+    nextActions,
+  });
 
   const { data: document, error } = await supabase
     .from("cfp_plan_documents")
@@ -1248,41 +1280,26 @@ async function currentPlanSnapshot(customerId: string, customer: Customer) {
   const supabase = await requireSupabase();
   const [goalsResult, statementsResult, actionsResult] = await Promise.all([
     supabase.from("financial_goals").select("*").eq("customer_id", customerId).order("created_at", { ascending: true }),
-    supabase.from("financial_statement_items").select("*").eq("customer_id", customerId).order("statement_date", { ascending: false }),
+    supabase.from("financial_statement_items").select(financialStatementItemSelect).eq("customer_id", customerId).order("statement_date", { ascending: false }),
     supabase.from("next_step_actions").select("*").eq("customer_id", customerId).order("created_at", { ascending: false }),
   ]);
-  const queryError = goalsResult.error || statementsResult.error || actionsResult.error;
+  if (statementsResult.error) {
+    logFinancialStatementDatabaseError("currentPlanSnapshot", statementsResult.error);
+    throw new Error(financialStatementErrorMessage(statementsResult.error));
+  }
+  const queryError = goalsResult.error || actionsResult.error;
   if (queryError) throw new Error(queryError.message);
 
   const goals = goalsResult.data || [];
-  const statements = statementsResult.data || [];
+  const statements = (statementsResult.data || []) as FinancialStatementItem[];
   const nextActions = actionsResult.data || [];
-  const balanceItems = statements.filter((item) => item.statement_type === "balance_sheet");
-  const cashFlowItems = statements.filter((item) => item.statement_type === "cash_flow");
-  const assets = balanceItems.filter((item) => item.item_type === "asset").reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const liabilities = balanceItems.filter((item) => item.item_type === "liability").reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const monthlyIncome = cashFlowItems
-    .filter((item) => item.item_type === "income")
-    .reduce((sum, item) => sum + monthlyEquivalent(item.amount, item.frequency), 0);
-  const monthlyExpenses = cashFlowItems
-    .filter((item) => item.item_type === "expense")
-    .reduce((sum, item) => sum + monthlyEquivalent(item.amount, item.frequency), 0);
 
-  return {
-    generated_at: new Date().toISOString(),
+  return buildCurrentPlanSnapshotData({
     customer,
     goals,
     statements,
-    next_actions: nextActions,
-    summary: {
-      total_assets: assets,
-      total_liabilities: liabilities,
-      net_worth: assets - liabilities,
-      monthly_income: monthlyIncome,
-      monthly_expenses: monthlyExpenses,
-      monthly_surplus: monthlyIncome - monthlyExpenses,
-    },
-  };
+    nextActions,
+  });
 }
 
 function requireAssignedAdviser(

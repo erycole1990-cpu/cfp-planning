@@ -5,6 +5,7 @@ import { PrintPlanButton } from "@/app/customers/[id]/plan/print-button";
 import { AppShell, ErrorNotice, PageHeader } from "@/app/ui";
 import {
   buildFinancialRatios,
+  buildBalanceSheetSummary,
   buildMonthlyFinancialOverview,
   buildProfitAndLossSummary,
   cashFlowAmountForMonth,
@@ -13,9 +14,9 @@ import {
   type FinancialRatio,
   type RatioStatus,
 } from "@/lib/cfp/financial-analysis";
-import { resolveFinancialStatementState } from "@/lib/cfp/financial-statement-state";
+import { resolveFinancialStatementReportState } from "@/lib/cfp/financial-statement-state";
 import { getCustomerDetail } from "@/lib/cfp/data";
-import { formatCurrency, formatDate } from "@/lib/cfp/format";
+import { formatCurrency, formatDate, planningCalendarDate } from "@/lib/cfp/format";
 import type { FinancialStatementItem } from "@/lib/cfp/supabase";
 
 type PageProps = {
@@ -37,8 +38,8 @@ const ratioLabels: Record<RatioStatus, string> = {
   insufficient: "Not assessed",
 };
 
-function availableYears(items: FinancialStatementItem[], requestedYear?: number) {
-  const years = new Set<number>([new Date().getFullYear()]);
+function availableYears(items: FinancialStatementItem[], currentYear: number, requestedYear?: number) {
+  const years = new Set<number>([currentYear]);
   if (
     typeof requestedYear === "number" &&
     Number.isInteger(requestedYear) &&
@@ -58,20 +59,6 @@ function adjacentMonth(year: number, monthIndex: number, offset: number) {
   const absoluteMonth = year * 12 + monthIndex + offset;
   const adjacentYear = Math.floor(absoluteMonth / 12);
   return { year: adjacentYear, monthIndex: absoluteMonth - adjacentYear * 12 };
-}
-
-function lineItems(
-  items: FinancialStatementItem[],
-  statementType: string,
-  itemType: string,
-) {
-  return items.filter(
-    (item) => item.statement_type === statementType && item.item_type === itemType,
-  );
-}
-
-function total(items: FinancialStatementItem[]) {
-  return items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
 }
 
 function Frequency({ item }: { item: FinancialStatementItem }) {
@@ -158,9 +145,61 @@ export default async function CustomerStatementsPage({
     </div>
   );
 
-  const statementState = resolveFinancialStatementState(
+  const planningDate = planningCalendarDate();
+  const requestedYear = Number(query.year);
+  const requestedMonth = Number(query.month);
+  const statementState = resolveFinancialStatementReportState(
     data.statementItems,
     data.statementError,
+    (items) => {
+      const years = availableYears(items, planningDate.year, requestedYear);
+      const year = years.includes(requestedYear) ? requestedYear : years[0];
+      const yearOptions = Array.from(
+        new Set([
+          ...years,
+          ...Array.from({ length: 10 }, (_, index) => planningDate.year - index),
+        ]),
+      ).sort((a, b) => b - a);
+      const monthIndex =
+        Number.isInteger(requestedMonth) && requestedMonth >= 0 && requestedMonth <= 11
+          ? requestedMonth
+          : planningDate.monthIndex;
+
+      const selectedOverview = buildMonthlyFinancialOverview(items, year, monthIndex);
+      const monthlyCashFlow = selectedOverview.monthlyCashFlow;
+      const selectedMonth = selectedOverview.cashFlow;
+      const selectedMonthItems = statementItemsForMonth(items, year, monthIndex);
+      const previousMonth = adjacentMonth(year, monthIndex, -1);
+      const nextMonth = adjacentMonth(year, monthIndex, 1);
+      const ratios = buildFinancialRatios(items, monthlyCashFlow, year);
+      const annualIncome = monthlyCashFlow.reduce((sum, month) => sum + month.income, 0);
+      const annualExpenses = monthlyCashFlow.reduce((sum, month) => sum + month.expenses, 0);
+      const annualSurplus = annualIncome - annualExpenses;
+      const balanceItems = items.filter((item) => item.statement_type === "balance_sheet");
+      const balanceSheet = buildBalanceSheetSummary(balanceItems);
+      const profitLossItems = items.filter((item) => item.statement_type === "profit_loss");
+
+      return {
+        years,
+        year,
+        yearOptions,
+        monthIndex,
+        monthlyCashFlow,
+        selectedMonth,
+        selectedMonthItems,
+        previousMonth,
+        nextMonth,
+        ratios,
+        annualIncome,
+        annualExpenses,
+        annualSurplus,
+        balanceItems,
+        netWorth: balanceSheet.netWorth,
+        profitLossItems,
+        selectedBusinessSummary: selectedOverview.profitAndLoss,
+        annualBusinessSummary: buildProfitAndLossSummary(profitLossItems, year),
+      };
+    },
   );
 
   if (statementState.status === "error") {
@@ -182,41 +221,25 @@ export default async function CustomerStatementsPage({
     );
   }
 
-  const items = statementState.items;
-  const requestedYear = Number(query.year);
-  const years = availableYears(items, requestedYear);
-  const year = years.includes(requestedYear) ? requestedYear : years[0];
-  const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from(
-    new Set([
-      ...years,
-      ...Array.from({ length: 10 }, (_, index) => currentYear - index),
-    ]),
-  ).sort((a, b) => b - a);
-  const requestedMonth = Number(query.month);
-  const monthIndex =
-    Number.isInteger(requestedMonth) && requestedMonth >= 0 && requestedMonth <= 11
-      ? requestedMonth
-      : new Date().getMonth();
-
-  const selectedOverview = buildMonthlyFinancialOverview(items, year, monthIndex);
-  const monthlyCashFlow = selectedOverview.monthlyCashFlow;
-  const selectedMonth = selectedOverview.cashFlow;
-  const selectedMonthItems = statementItemsForMonth(items, year, monthIndex);
-  const previousMonth = adjacentMonth(year, monthIndex, -1);
-  const nextMonth = adjacentMonth(year, monthIndex, 1);
-  const ratios = buildFinancialRatios(items, monthlyCashFlow, year);
-  const annualIncome = monthlyCashFlow.reduce((sum, month) => sum + month.income, 0);
-  const annualExpenses = monthlyCashFlow.reduce((sum, month) => sum + month.expenses, 0);
-  const annualSurplus = annualIncome - annualExpenses;
-
-  const balanceItems = items.filter((item) => item.statement_type === "balance_sheet");
-  const assets = lineItems(balanceItems, "balance_sheet", "asset");
-  const liabilities = lineItems(balanceItems, "balance_sheet", "liability");
-  const netWorth = total(assets) - total(liabilities);
-  const profitLossItems = items.filter((item) => item.statement_type === "profit_loss");
-  const selectedBusinessSummary = selectedOverview.profitAndLoss;
-  const annualBusinessSummary = buildProfitAndLossSummary(profitLossItems, year);
+  const {
+    year,
+    yearOptions,
+    monthIndex,
+    monthlyCashFlow,
+    selectedMonth,
+    selectedMonthItems,
+    previousMonth,
+    nextMonth,
+    ratios,
+    annualIncome,
+    annualExpenses,
+    annualSurplus,
+    balanceItems,
+    netWorth,
+    profitLossItems,
+    selectedBusinessSummary,
+    annualBusinessSummary,
+  } = statementState.report;
 
   return (
     <AppShell>

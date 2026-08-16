@@ -3,11 +3,58 @@ export type ActivityWindowPresentation = {
   disclosure: string | null;
 };
 
+export type ActivityLoadState<T> =
+  | {
+      status: "error";
+      error: string;
+      records: null;
+      totalCount: null;
+      countError: string | null;
+    }
+  | {
+      status: "empty" | "ready";
+      error: null;
+      records: T[];
+      totalCount: number | null;
+      countError: string | null;
+    };
+
 export function resolveActivityTotalCount(
   count: number | null,
   countError: string | null,
 ) {
   return countError === null && typeof count === "number" ? count : null;
+}
+
+export function resolveActivityLoadState<T>({
+  records,
+  recordError,
+  totalCount,
+  countError,
+}: {
+  records: T[] | null | undefined;
+  recordError: string | null;
+  totalCount: number | null;
+  countError: string | null;
+}): ActivityLoadState<T> {
+  if (recordError) {
+    return {
+      status: "error",
+      error: recordError,
+      records: null,
+      totalCount: null,
+      countError,
+    };
+  }
+
+  const availableRecords = records ?? [];
+  return {
+    status: availableRecords.length === 0 ? "empty" : "ready",
+    error: null,
+    records: availableRecords,
+    totalCount: resolveActivityTotalCount(totalCount, countError),
+    countError,
+  };
 }
 
 export function buildActivityWindowPresentation({

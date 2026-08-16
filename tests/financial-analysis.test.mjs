@@ -50,12 +50,12 @@ test("builds the eight-measure personal financial health check from recorded dat
   const byId = new Map(ratios.map((ratio) => [ratio.id, ratio]));
 
   assert.equal(ratios.length, 8);
-  assert.equal(byId.get("cash-flow-surplus")?.displayValue, "30.0%");
-  assert.equal(byId.get("savings-investment")?.displayValue, "20.0%");
-  assert.equal(byId.get("reserve")?.displayValue, "6.7 months");
-  assert.equal(byId.get("debt")?.displayValue, "20.0%");
-  assert.equal(byId.get("housing")?.displayValue, "25.0%");
-  assert.equal(byId.get("solvency")?.displayValue, "62.3%");
+  assert.equal(byId.get("cash-flow-surplus")?.displayValue, "30.00%");
+  assert.equal(byId.get("savings-investment")?.displayValue, "20.00%");
+  assert.equal(byId.get("reserve")?.displayValue, "6.67 months");
+  assert.equal(byId.get("debt")?.displayValue, "20.00%");
+  assert.equal(byId.get("housing")?.displayValue, "25.00%");
+  assert.equal(byId.get("solvency")?.displayValue, "62.26%");
   assert.equal(byId.get("protection")?.displayValue, "Not assessed");
   assert.equal(byId.get("goal-funding")?.displayValue, "Not assessed");
   assert.equal(byId.get("protection")?.status, "insufficient");
@@ -126,9 +126,53 @@ test("uses structured planning classifications before description matching", () 
   const ratios = buildFinancialRatios(items, buildMonthlyCashFlow(items, 2026), 2026);
   const byId = new Map(ratios.map((ratio) => [ratio.id, ratio]));
 
-  assert.equal(byId.get("savings-investment")?.displayValue, "15.0%");
-  assert.equal(byId.get("reserve")?.displayValue, "8.0 months");
-  assert.equal(byId.get("debt")?.displayValue, "10.0%");
+  assert.equal(byId.get("savings-investment")?.displayValue, "15.00%");
+  assert.equal(byId.get("reserve")?.displayValue, "8.00 months");
+  assert.equal(byId.get("debt")?.displayValue, "10.00%");
+});
+
+test("keeps precise ratio classifications visible immediately around thresholds", () => {
+  function ratioFor(monthlyExpense, liquidAssets = 0) {
+    const items = [
+      statementItem("cash_flow", "income", "Salary", 10_000),
+      statementItem("cash_flow", "expense", "Groceries / Food", monthlyExpense, {
+        cash_flow_nature: "essential",
+      }),
+      ...(liquidAssets
+        ? [statementItem("balance_sheet", "asset", "Cash", liquidAssets, { liquidity_class: "liquid" })]
+        : []),
+    ];
+    return new Map(
+      buildFinancialRatios(items, buildMonthlyCashFlow(items, 2026), 2026)
+        .map((ratio) => [ratio.id, ratio]),
+    );
+  }
+
+  const ordinaryBelow = ratioFor(8_004).get("cash-flow-surplus");
+  const roundedBelow = ratioFor(8_000.1).get("cash-flow-surplus");
+  const exact = ratioFor(8_000).get("cash-flow-surplus");
+  const roundedAbove = ratioFor(7_999.9).get("cash-flow-surplus");
+
+  assert.deepEqual(
+    [ordinaryBelow.displayValue, ordinaryBelow.status],
+    ["19.96%", "watch"],
+  );
+  assert.deepEqual(
+    [roundedBelow.displayValue, roundedBelow.status],
+    ["<20.00%", "watch"],
+  );
+  assert.deepEqual([exact.displayValue, exact.status], ["20.00%", "good"]);
+  assert.deepEqual(
+    [roundedAbove.displayValue, roundedAbove.status],
+    [">20.00%", "good"],
+  );
+
+  const reserveBelow = ratioFor(1_000, 5_999).get("reserve");
+  const reserveExact = ratioFor(1_000, 6_000).get("reserve");
+  const reserveAbove = ratioFor(1_000, 6_001).get("reserve");
+  assert.deepEqual([reserveBelow.displayValue, reserveBelow.status], ["<6.00 months", "watch"]);
+  assert.deepEqual([reserveExact.displayValue, reserveExact.status], ["6.00 months", "good"]);
+  assert.deepEqual([reserveAbove.displayValue, reserveAbove.status], [">6.00 months", "good"]);
 });
 
 test("returns unassessed ratios when recorded data has no usable denominator", () => {
@@ -364,5 +408,18 @@ test("keeps date-only boundaries and mixed frequencies invariant across timezone
     revenue: 12_199,
     costs: 620,
     profit: 11_579,
+  });
+});
+
+test("uses the configured planning calendar when a statement date falls back to its timestamp", () => {
+  const fallbackItem = statementItem("cash_flow", "income", "Timestamp fallback", 1_000, {
+    statement_date: null,
+    created_at: "2025-12-31T16:30:00.000Z",
+  });
+
+  assert.deepEqual(statementCalendarDate(fallbackItem), {
+    year: 2026,
+    monthIndex: 0,
+    day: 1,
   });
 });

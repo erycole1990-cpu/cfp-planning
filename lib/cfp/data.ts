@@ -13,8 +13,9 @@ import { canAccessCustomer, filterOperationalCustomersForAccess, requireCurrentA
 import {
   financialStatementErrorMessage,
   financialStatementItemSelect,
+  logFinancialStatementDatabaseError,
 } from "./financial-statement-schema";
-import { resolveActivityTotalCount } from "./activity-window";
+import { resolveActivityLoadState } from "./activity-window";
 
 export type DashboardData = {
   configured: boolean;
@@ -195,10 +196,34 @@ export async function getCustomerDetail(id: string) {
   const logs = (logsResult.data ?? []) as GoalProgressLog[];
   const latestLogsByGoal: Record<string, GoalProgressLog> = {};
   for (const log of logs) latestLogsByGoal[log.goal_id] ||= log;
+  if (statementsResult.error) {
+    logFinancialStatementDatabaseError("getCustomerDetail", statementsResult.error);
+  }
   const statementError = statementsResult.error
     ? financialStatementErrorMessage(statementsResult.error)
     : null;
-  const activityCountError = auditCountResult.error?.message ?? null;
+  if (auditResult.error) {
+    console.error("[customer-activity] record query failed", {
+      code: auditResult.error.code || "unknown",
+    });
+  }
+  if (auditCountResult.error) {
+    console.error("[customer-activity] count query failed", {
+      code: auditCountResult.error.code || "unknown",
+    });
+  }
+  const activityLoadError = auditResult.error
+    ? "Activity history could not be loaded. Please retry."
+    : null;
+  const activityCountError = auditCountResult.error
+    ? "Activity total count is unavailable."
+    : null;
+  const activityState = resolveActivityLoadState({
+    records: (auditResult.data ?? []) as CustomerAuditLog[],
+    recordError: activityLoadError,
+    totalCount: auditCountResult.count,
+    countError: activityCountError,
+  });
 
   return {
     configured: true,
@@ -210,11 +235,9 @@ export async function getCustomerDetail(id: string) {
     statementItems: (statementsResult.data ?? []) as FinancialStatementItem[],
     statementError,
     pendingSubmissions: (submissionsResult.data ?? []) as PendingClientSubmission[],
-    auditLogs: (auditResult.data ?? []) as CustomerAuditLog[],
-    activityTotalCount: resolveActivityTotalCount(
-      auditCountResult.count,
-      activityCountError,
-    ),
+    auditLogs: activityState.records,
+    activityLoadError: activityState.error,
+    activityTotalCount: activityState.totalCount,
     activityCountError,
     activityWindowLimit: customerActivityWindowLimit,
     latestLogsByGoal,
@@ -225,8 +248,7 @@ export async function getCustomerDetail(id: string) {
       actionsResult.error?.message ||
       statementError ||
       submissionsResult.error?.message ||
-      auditResult.error?.message ||
-      activityCountError ||
+      activityState.error ||
       undefined,
   };
 }

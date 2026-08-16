@@ -47,9 +47,19 @@ test("missing planning schema errors produce deployment guidance", () => {
   assert.match(message, /0029_statement_planning_metadata\.sql/);
 });
 
-test("ordinary statement query errors remain visible", () => {
-  assert.equal(
-    financialStatementErrorMessage({ message: "Database connection timed out" }),
-    "Database connection timed out",
-  );
+test("ordinary statement database errors are safe for authenticated UI users", () => {
+  const technicalError = {
+    code: "42501",
+    message: "permission denied for table financial_statement_items",
+    details: "Row violates policy adviser_customer_scope",
+    hint: "Inspect constraint confidential_policy_name",
+  };
+  const loadMessage = financialStatementErrorMessage(technicalError);
+  const saveMessage = financialStatementErrorMessage(technicalError, "save");
+
+  assert.match(loadMessage, /could not be loaded.*retry/i);
+  assert.match(saveMessage, /could not be saved.*retry/i);
+  for (const message of [loadMessage, saveMessage]) {
+    assert.doesNotMatch(message, /permission|financial_statement_items|policy|constraint|42501/i);
+  }
 });

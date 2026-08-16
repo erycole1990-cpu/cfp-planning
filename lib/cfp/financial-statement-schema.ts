@@ -18,14 +18,14 @@ export const financialStatementItemSelect =
 
 export const statementPlanningMigration = "0029_statement_planning_metadata.sql";
 
-type StatementDatabaseError = {
+export type StatementDatabaseError = {
   code?: string | null;
   message?: string | null;
   details?: string | null;
   hint?: string | null;
 };
 
-export function financialStatementErrorMessage(error: StatementDatabaseError) {
+function financialStatementErrorCategory(error: StatementDatabaseError) {
   const sourceMessage = [error.message, error.details, error.hint]
     .filter(Boolean)
     .join(" ")
@@ -34,15 +34,39 @@ export function financialStatementErrorMessage(error: StatementDatabaseError) {
   const missingPlanningColumn = statementPlanningColumns.some((column) =>
     normalizedMessage.includes(column),
   );
-  const schemaUnavailable =
+  return (
     error.code === "PGRST204" ||
     error.code === "42703" ||
     normalizedMessage.includes("schema cache") ||
-    missingPlanningColumn;
+    missingPlanningColumn
+  )
+    ? "missing_statement_planning_schema"
+    : "statement_database_failure";
+}
+
+export function logFinancialStatementDatabaseError(
+  context: string,
+  error: StatementDatabaseError,
+) {
+  console.error("[financial-statements] database operation failed", {
+    context,
+    code: error.code || "unknown",
+    category: financialStatementErrorCategory(error),
+  });
+}
+
+export function financialStatementErrorMessage(
+  error: StatementDatabaseError,
+  operation: "load" | "save" = "load",
+) {
+  const schemaUnavailable =
+    financialStatementErrorCategory(error) === "missing_statement_planning_schema";
 
   if (schemaUnavailable) {
     return `Financial statement planning data is unavailable because the required database schema is missing or out of date. Apply migration ${statementPlanningMigration}, then retry.`;
   }
 
-  return sourceMessage || "Financial statement data could not be loaded. Please retry.";
+  return operation === "save"
+    ? "Financial statement data could not be saved. Please retry. If the problem continues, contact support."
+    : "Financial statement data could not be loaded. Please retry. If the problem continues, contact support.";
 }

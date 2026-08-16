@@ -25,3 +25,33 @@ export function resolveFinancialStatementState<T>(
     items: availableItems,
   };
 }
+
+export type FinancialStatementReportState<TItem, TReport> =
+  | {
+      status: "error";
+      error: string;
+      items: null;
+      report: null;
+    }
+  | {
+      status: "empty" | "ready";
+      error: null;
+      items: TItem[];
+      report: TReport;
+    };
+
+export function resolveFinancialStatementReportState<TItem, TReport>(
+  items: TItem[] | null | undefined,
+  error: string | null | undefined,
+  buildReport: (availableItems: TItem[]) => TReport,
+): FinancialStatementReportState<TItem, TReport> {
+  const state = resolveFinancialStatementState(items, error);
+  if (state.status === "error") {
+    return { ...state, report: null };
+  }
+
+  return {
+    ...state,
+    report: buildReport(state.items),
+  };
+}

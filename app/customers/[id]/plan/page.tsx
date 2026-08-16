@@ -29,6 +29,13 @@ type PlanSnapshot = {
   goals?: FinancialGoal[];
   statements?: FinancialStatementItem[];
   next_actions?: NextStepAction[];
+  reporting_period?: {
+    as_of_date?: string;
+    year?: number;
+    month_index?: number;
+    month?: string;
+    time_zone?: string;
+  };
   summary?: {
     total_assets?: number;
     total_liabilities?: number;
@@ -59,11 +66,12 @@ function PlanStatusBadge({ status }: { status: CfpPlanDocument["status"] }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${statusClasses[status]}`}>{planStatus(status)}</span>;
 }
 
-function SummaryCell({ label, value }: { label: string; value: number | undefined }) {
+function SummaryCell({ label, value, detail }: { label: string; value: number | undefined; detail?: string }) {
   return (
     <div className="border-b border-[#dce2dc] py-3 last:border-0">
       <p className="text-xs font-bold uppercase text-[#68756f]">{label}</p>
-      <p className="mt-1 text-xl font-bold">{formatCurrency(value || 0)}</p>
+      {detail ? <p className="mt-1 text-xs font-semibold text-[#68756f]">{detail}</p> : null}
+      <p className="mt-1 text-xl font-bold">{formatCurrency(value ?? 0)}</p>
     </div>
   );
 }
@@ -96,6 +104,10 @@ export default async function CustomerPlanPage({
   const statements = snapshot.statements || [];
   const nextActions = snapshot.next_actions || [];
   const summary = snapshot.summary || {};
+  const reportingPeriod = snapshot.reporting_period;
+  const reportingPeriodLabel = reportingPeriod?.month && reportingPeriod.year
+    ? `${reportingPeriod.month} ${reportingPeriod.year}`
+    : undefined;
   const personalPlan = isPersonalCustomer(access, customer as Customer);
   const isAssignedAdviser =
     access.isAgent &&
@@ -257,7 +269,7 @@ export default async function CustomerPlanPage({
                 </div>
                 <div className="panel px-5 py-2">
                   <SummaryCell label="Net worth" value={summary.net_worth} />
-                  <SummaryCell label="Monthly surplus" value={summary.monthly_surplus} />
+                  <SummaryCell label="Monthly surplus" value={summary.monthly_surplus} detail={reportingPeriodLabel} />
                   <SummaryCell label="Assets / liabilities" value={summary.total_assets} />
                   <p className="pb-3 text-xs text-[#68756f]">Liabilities: {formatCurrency(summary.total_liabilities || 0)}</p>
                 </div>

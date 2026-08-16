@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireCurrentAccess } from "@/lib/cfp/access";
+import { planningDateTimeIso } from "@/lib/cfp/format";
 import { createCfpServerClient } from "@/lib/cfp/supabase";
 
 function safeDestination(value: FormDataEntryValue | null) {
@@ -117,7 +118,7 @@ export async function updateNotificationAccountability(formData: FormData) {
   if (!id || !["low", "normal", "high", "urgent"].includes(priority)) return;
   const supabase = await createCfpServerClient();
   if (!supabase) return;
-  const dueAt = dueDate ? new Date(`${dueDate}T17:00:00+08:00`).toISOString() : null;
+  const dueAt = dueDate ? planningDateTimeIso(dueDate, 17) : null;
   await supabase
     .from("notifications")
     .update({ priority, due_at: dueAt, escalated_at: priority === "urgent" ? new Date().toISOString() : null })

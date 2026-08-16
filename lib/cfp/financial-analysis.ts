@@ -1,4 +1,5 @@
 import type { FinancialStatementItem } from "@/lib/cfp/supabase";
+import { parseDateOnly, planningCalendarDate } from "./format.ts";
 
 export type MonthlyCashFlow = {
   monthIndex: number;
@@ -27,6 +28,12 @@ export type ProfitAndLossSummary = {
   profit: number;
 };
 
+export type BalanceSheetSummary = {
+  totalAssets: number;
+  totalLiabilities: number;
+  netWorth: number;
+};
+
 export type MonthlyProfitAndLoss = ProfitAndLossSummary & {
   monthIndex: number;
   month: string;
@@ -47,6 +54,13 @@ export type StatementCalendarDate = {
   day: number;
 };
 
+export type PlanReportingPeriod = {
+  asOfDate: string;
+  year: number;
+  monthIndex: number;
+  timeZone: string;
+};
+
 const monthLabels = [
   "January",
   "February",
@@ -62,25 +76,6 @@ const monthLabels = [
   "December",
 ];
 
-function parseDateOnly(value: string): StatementCalendarDate | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return null;
-
-  const year = Number(match[1]);
-  const monthIndex = Number(match[2]) - 1;
-  const day = Number(match[3]);
-  const validationDate = new Date(Date.UTC(year, monthIndex, day));
-  if (
-    validationDate.getUTCFullYear() !== year ||
-    validationDate.getUTCMonth() !== monthIndex ||
-    validationDate.getUTCDate() !== day
-  ) {
-    return null;
-  }
-
-  return { year, monthIndex, day };
-}
-
 export function statementCalendarDate(
   item: FinancialStatementItem,
 ): StatementCalendarDate | null {
@@ -91,10 +86,11 @@ export function statementCalendarDate(
 
   const createdAt = new Date(item.created_at);
   if (Number.isNaN(createdAt.getTime())) return null;
+  const calendarDate = planningCalendarDate(createdAt);
   return {
-    year: createdAt.getUTCFullYear(),
-    monthIndex: createdAt.getUTCMonth(),
-    day: createdAt.getUTCDate(),
+    year: calendarDate.year,
+    monthIndex: calendarDate.monthIndex,
+    day: calendarDate.day,
   };
 }
 
@@ -190,6 +186,19 @@ function sumItems(items: FinancialStatementItem[], itemTypes: string[]) {
     .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
 }
 
+export function buildBalanceSheetSummary(
+  items: FinancialStatementItem[],
+): BalanceSheetSummary {
+  const balanceItems = items.filter((item) => item.statement_type === "balance_sheet");
+  const totalAssets = sumItems(balanceItems, ["asset"]);
+  const totalLiabilities = sumItems(balanceItems, ["liability"]);
+  return {
+    totalAssets,
+    totalLiabilities,
+    netWorth: totalAssets - totalLiabilities,
+  };
+}
+
 function ratioStatus(
   value: number | null,
   good: (value: number) => boolean,
@@ -201,8 +210,27 @@ function ratioStatus(
   return "attention";
 }
 
-function percent(value: number | null) {
-  return value === null ? "Not assessed" : `${(value * 100).toFixed(1)}%`;
+function thresholdAwareDisplay(
+  value: number,
+  thresholds: number[],
+  suffix: string,
+) {
+  const rounded = Number(value.toFixed(2));
+  for (const threshold of thresholds) {
+    if (value < threshold && rounded >= threshold) {
+      return `<${threshold.toFixed(2)}${suffix}`;
+    }
+    if (value > threshold && rounded <= threshold) {
+      return `>${threshold.toFixed(2)}${suffix}`;
+    }
+  }
+  return `${value.toFixed(2)}${suffix}`;
+}
+
+function percent(value: number | null, thresholds: number[]) {
+  return value === null
+    ? "Not assessed"
+    : thresholdAwareDisplay(value * 100, thresholds, "%");
 }
 
 function itemText(item: FinancialStatementItem) {
@@ -244,8 +272,7 @@ export function buildFinancialRatios(
   year: number,
 ): FinancialRatio[] {
   const balanceItems = items.filter((item) => item.statement_type === "balance_sheet");
-  const totalAssets = sumItems(balanceItems, ["asset"]);
-  const totalLiabilities = sumItems(balanceItems, ["liability"]);
+  const { totalAssets, totalLiabilities } = buildBalanceSheetSummary(items);
   const liquidAssets = balanceItems
     .filter(
       (item) =>
@@ -317,13 +344,13 @@ export function buildFinancialRatios(
       id: "cash-flow-surplus",
       label: "Cash-Flow Surplus Ratio",
       value: surplusRatio,
-      displayValue: percent(surplusRatio),
+      displayValue: percent(surplusRatio, [10, 20]),
       status: ratioStatus(
         surplusRatio,
         (value) => value >= 0.2,
         (value) => value >= 0.1,
       ),
-      benchmark: "Good: 20%+ | Review: 10%-19.9% | Attention: below 10%",
+      benchmark: "Good: 20.00% or more | Review: 10.00% to below 20.00% | Attention: below 10.00%",
       formula: "Annual cash-flow surplus / annual recorded income",
       explanation:
         "Shows how much recorded income remains after all recorded expenses. A negative result signals a cash-flow shortfall.",
@@ -332,13 +359,13 @@ export function buildFinancialRatios(
       id: "savings-investment",
       label: "Savings and Investment Ratio",
       value: savingsAndInvestmentRatio,
-      displayValue: percent(savingsAndInvestmentRatio),
+      displayValue: percent(savingsAndInvestmentRatio, [10, 20]),
       status: ratioStatus(
         savingsAndInvestmentRatio,
         (value) => value >= 0.2,
         (value) => value >= 0.1,
       ),
-      benchmark: "Good: 20%+ | Review: 10%-19.9% | Attention: below 10%",
+      benchmark: "Good: 20.00% or more | Review: 10.00% to below 20.00% | Attention: below 10.00%",
       formula: "Recorded savings and investment contributions / annual recorded income",
       explanation:
         "Measures the share of income deliberately directed to future wealth. It only counts entries categorised as Savings / Investment.",
@@ -348,13 +375,15 @@ export function buildFinancialRatios(
       label: "Basic Liquidity Ratio",
       value: reserveCoverage,
       displayValue:
-        reserveCoverage === null ? "Not assessed" : `${reserveCoverage.toFixed(1)} months`,
+        reserveCoverage === null
+          ? "Not assessed"
+          : thresholdAwareDisplay(reserveCoverage, [3, 6], " months"),
       status: ratioStatus(
         reserveCoverage,
         (value) => value >= 6,
         (value) => value >= 3,
       ),
-      benchmark: "Good: 6+ months | Review: 3-5.9 months | Attention: below 3 months",
+      benchmark: "Good: 6.00 months or more | Review: 3.00 to below 6.00 months | Attention: below 3.00 months",
       formula: "Liquid assets / average monthly essential expenses",
       explanation:
         "Shows how many months of essential expenses could be covered using cash, savings, current accounts, and fixed deposits.",
@@ -363,13 +392,13 @@ export function buildFinancialRatios(
       id: "debt",
       label: "Debt-Service Ratio",
       value: debtServiceRatio,
-      displayValue: percent(debtServiceRatio),
+      displayValue: percent(debtServiceRatio, [35, 50]),
       status: ratioStatus(
         debtServiceRatio,
         (value) => value <= 0.35,
         (value) => value <= 0.5,
       ),
-      benchmark: "Good: 35% or less | Review: 35.1%-50% | Attention: above 50%",
+      benchmark: "Good: 35.00% or less | Review: above 35.00% to 50.00% | Attention: above 50.00%",
       formula: "Annual recorded debt repayments / annual recorded income",
       explanation:
         "Shows how much recorded income is committed to loans and credit. Lenders may use different income definitions and limits.",
@@ -378,13 +407,13 @@ export function buildFinancialRatios(
       id: "housing",
       label: "Housing-Cost Ratio",
       value: housingCostRatio,
-      displayValue: percent(housingCostRatio),
+      displayValue: percent(housingCostRatio, [30, 35]),
       status: ratioStatus(
         housingCostRatio,
         (value) => value <= 0.3,
         (value) => value <= 0.35,
       ),
-      benchmark: "Good: 30% or less | Review: 30.1%-35% | Attention: above 35%",
+      benchmark: "Good: 30.00% or less | Review: above 30.00% to 35.00% | Attention: above 35.00%",
       formula: "Annual recorded housing costs / annual recorded income",
       explanation:
         "Shows how much income is used for rent or housing instalments and related recorded housing costs.",
@@ -393,13 +422,13 @@ export function buildFinancialRatios(
       id: "solvency",
       label: "Solvency Ratio",
       value: solvencyRatio,
-      displayValue: percent(solvencyRatio),
+      displayValue: percent(solvencyRatio, [30, 50]),
       status: ratioStatus(
         solvencyRatio,
         (value) => value >= 0.5,
         (value) => value >= 0.3,
       ),
-      benchmark: "Good: 50%+ | Review: 30%-49.9% | Attention: below 30%",
+      benchmark: "Good: 50.00% or more | Review: 30.00% to below 50.00% | Attention: below 30.00%",
       formula: "Net worth / total assets",
       explanation:
         "Shows how much of the asset base remains after liabilities. It is a broad resilience indicator, not a credit score.",
@@ -500,5 +529,35 @@ export function buildMonthlyFinancialOverview(
     monthlyCashFlow,
     cashFlow,
     profitAndLoss: buildProfitAndLossSummary(items, year, monthIndex),
+  };
+}
+
+export function buildPlanFinancialSnapshot(
+  items: FinancialStatementItem[],
+  reportingPeriod: PlanReportingPeriod,
+) {
+  const overview = buildMonthlyFinancialOverview(
+    items,
+    reportingPeriod.year,
+    reportingPeriod.monthIndex,
+  );
+  const balanceSheet = buildBalanceSheetSummary(items);
+
+  return {
+    reporting_period: {
+      as_of_date: reportingPeriod.asOfDate,
+      year: reportingPeriod.year,
+      month_index: reportingPeriod.monthIndex,
+      month: overview.month,
+      time_zone: reportingPeriod.timeZone,
+    },
+    summary: {
+      total_assets: balanceSheet.totalAssets,
+      total_liabilities: balanceSheet.totalLiabilities,
+      net_worth: balanceSheet.netWorth,
+      monthly_income: overview.cashFlow.income,
+      monthly_expenses: overview.cashFlow.expenses,
+      monthly_surplus: overview.cashFlow.surplus,
+    },
   };
 }

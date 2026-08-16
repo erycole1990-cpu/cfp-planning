@@ -298,19 +298,27 @@ test("calculates mixed-frequency monthly and annual business profit for the sele
   });
 });
 
-test("uses one shared period calculation for overview and detailed reporting", () => {
+test("keeps overview and report calculations identical across monthly, annual, and quarterly income", () => {
   const items = [
     statementItem("cash_flow", "income", "Monthly salary", 8_000, {
       frequency: "monthly",
       statement_date: "2026-06-15",
     }),
-    statementItem("cash_flow", "expense", "Weekly living costs", 120, {
-      frequency: "weekly",
+    statementItem("cash_flow", "income", "Annual bonus", 12_000, {
+      frequency: "annual",
+      statement_date: "2026-09-15",
+    }),
+    statementItem("cash_flow", "income", "Quarterly distribution", 900, {
+      frequency: "quarterly",
       statement_date: "2026-06-15",
     }),
     statementItem("profit_loss", "revenue", "Monthly sales", 10_000, {
       frequency: "monthly",
       statement_date: "2026-06-15",
+    }),
+    statementItem("profit_loss", "revenue", "Annual contract", 12_000, {
+      frequency: "annual",
+      statement_date: "2026-09-15",
     }),
     statementItem("profit_loss", "cost", "Quarterly supplies", 300, {
       frequency: "quarterly",
@@ -318,15 +326,19 @@ test("uses one shared period calculation for overview and detailed reporting", (
     }),
   ];
 
-  const overview = buildMonthlyFinancialOverview(items, 2026, 5);
+  const overview = buildMonthlyFinancialOverview(items, 2026, 8);
 
-  assert.deepEqual(overview.cashFlow, buildMonthlyCashFlow(items, 2026)[5]);
+  assert.deepEqual(overview.cashFlow, buildMonthlyCashFlow(items, 2026)[8]);
   assert.deepEqual(
     overview.profitAndLoss,
-    buildProfitAndLossSummary(items, 2026, 5),
+    buildProfitAndLossSummary(items, 2026, 8),
   );
-  assert.equal(overview.cashFlow.surplus, 7_480);
-  assert.equal(overview.profitAndLoss.profit, 9_900);
+  assert.equal(overview.cashFlow.income, 20_300);
+  assert.equal(overview.cashFlow.expenses, 0);
+  assert.equal(overview.cashFlow.surplus, 20_300);
+  assert.equal(overview.profitAndLoss.revenue, 22_000);
+  assert.equal(overview.profitAndLoss.costs, 100);
+  assert.equal(overview.profitAndLoss.profit, 21_900);
   assert.equal(buildMonthlyFinancialOverview(items, 2026, 4).cashFlow.income, 0);
   assert.equal(
     buildMonthlyFinancialOverview(items, 2026, 4).profitAndLoss.revenue,

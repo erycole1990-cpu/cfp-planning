@@ -36,6 +36,7 @@ import {
   type MonthlyCashFlow,
 } from "@/lib/cfp/financial-analysis";
 import { buildActivityWindowPresentation } from "@/lib/cfp/activity-window";
+import { resolveFinancialStatementReportState } from "@/lib/cfp/financial-statement-state";
 
 export const dynamic = "force-dynamic";
 
@@ -588,30 +589,36 @@ export default async function CustomerDetailPage({
     (query.goal && sortedGoals.some((goal) => goal.id === query.goal) ? query.goal : null) ||
     sortedGoals.find((goal) => goal.on_track_status === "off_track" || goal.on_track_status === "at_risk")?.id ||
     sortedGoals[0]?.id;
-  const statementItems = data.statementItems ?? [];
-  const balanceSheetItems = statementItems.filter((item) => item.statement_type === "balance_sheet");
-  const cashFlowItems = statementItems.filter((item) => item.statement_type === "cash_flow");
-  const profitLossItems = statementItems.filter((item) => item.statement_type === "profit_loss");
-  const balanceSheet = buildBalanceSheetSummary(statementItems);
-  const totalAssets = balanceSheet.totalAssets;
-  const totalLiabilities = balanceSheet.totalLiabilities;
-  const netWorth = balanceSheet.netWorth;
   const overviewYear = planningDate.year;
   const overviewMonthIndex = planningDate.monthIndex;
-  const financialOverview = buildMonthlyFinancialOverview(
-    statementItems,
-    overviewYear,
-    overviewMonthIndex,
+  const financialStatementState = resolveFinancialStatementReportState(
+    data.statementItems,
+    data.statementError,
+    (statementItems) => {
+      const profitLossItems = statementItems.filter(
+        (item) => item.statement_type === "profit_loss",
+      );
+
+      return {
+        balanceSheetItems: statementItems.filter(
+          (item) => item.statement_type === "balance_sheet",
+        ),
+        cashFlowItems: statementItems.filter(
+          (item) => item.statement_type === "cash_flow",
+        ),
+        profitLossItems,
+        balanceSheet: buildBalanceSheetSummary(statementItems),
+        monthlyOverview: buildMonthlyFinancialOverview(
+          statementItems,
+          overviewYear,
+          overviewMonthIndex,
+        ),
+        showProfitLossSummary:
+          isBusinessPlanningRelevant(customer) || profitLossItems.length > 0,
+      };
+    },
   );
-  const monthlyIncome = financialOverview.cashFlow.income;
-  const monthlyExpenses = financialOverview.cashFlow.expenses;
-  const monthlySurplus = financialOverview.cashFlow.surplus;
-  const cashFlowMonthlySummary = financialOverview.monthlyCashFlow;
-  const monthlyRevenue = financialOverview.profitAndLoss.revenue;
-  const monthlyCosts = financialOverview.profitAndLoss.costs;
-  const monthlyProfit = financialOverview.profitAndLoss.profit;
-  const overviewPeriodLabel = `${financialOverview.month} ${overviewYear}`;
-  const showProfitLossSummary = isBusinessPlanningRelevant(customer) || profitLossItems.length > 0;
+  const financialReport = financialStatementState.report;
   const actor = accessDisplayName(access);
 
   return (
@@ -940,7 +947,7 @@ export default async function CustomerDetailPage({
             </div>
           </section>
 
-          {data.statementError ? (
+          {financialReport === null ? (
             <section id="financial-statements" className="panel p-5">
               <h2 className="text-2xl font-bold">Financial Statements</h2>
               <p className="mt-2 text-sm text-[#68756f]">
@@ -956,24 +963,24 @@ export default async function CustomerDetailPage({
               </div>
             </div>
 
-            <div className={`mt-4 grid gap-3 ${showProfitLossSummary ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
+            <div className={`mt-4 grid gap-3 ${financialReport.showProfitLossSummary ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
               <div className="rounded-md bg-[#f5f7f4] p-4">
                 <p className="text-sm font-bold uppercase text-[#68756f]">Net Worth</p>
-                <p className="mt-2 text-2xl font-bold">{formatCurrency(netWorth)}</p>
-                <p className="mt-1 text-sm text-[#405047]">{formatCurrency(totalAssets)} assets - {formatCurrency(totalLiabilities)} liabilities</p>
+                <p className="mt-2 text-2xl font-bold">{formatCurrency(financialReport.balanceSheet.netWorth)}</p>
+                <p className="mt-1 text-sm text-[#405047]">{formatCurrency(financialReport.balanceSheet.totalAssets)} assets - {formatCurrency(financialReport.balanceSheet.totalLiabilities)} liabilities</p>
               </div>
               <div className="rounded-md bg-[#f5f7f4] p-4">
                 <p className="text-sm font-bold uppercase text-[#68756f]">Monthly Surplus</p>
-                <p className="mt-1 text-sm font-semibold text-[#405047]">{overviewPeriodLabel}</p>
-                <p className="mt-2 text-2xl font-bold">{formatCurrency(monthlySurplus)}</p>
-                <p className="mt-1 text-sm text-[#405047]">{formatCurrency(monthlyIncome)} income - {formatCurrency(monthlyExpenses)} expenses</p>
+                <p className="mt-1 text-sm font-semibold text-[#405047]">{financialReport.monthlyOverview.month} {overviewYear}</p>
+                <p className="mt-2 text-2xl font-bold">{formatCurrency(financialReport.monthlyOverview.cashFlow.surplus)}</p>
+                <p className="mt-1 text-sm text-[#405047]">{formatCurrency(financialReport.monthlyOverview.cashFlow.income)} income - {formatCurrency(financialReport.monthlyOverview.cashFlow.expenses)} expenses</p>
               </div>
-              {showProfitLossSummary ? (
+              {financialReport.showProfitLossSummary ? (
                 <div className="rounded-md bg-[#f5f7f4] p-4">
                   <p className="text-sm font-bold uppercase text-[#68756f]">Business Monthly Profit</p>
-                  <p className="mt-1 text-sm font-semibold text-[#405047]">{overviewPeriodLabel}</p>
-                  <p className="mt-2 text-2xl font-bold">{formatCurrency(monthlyProfit)}</p>
-                  <p className="mt-1 text-sm text-[#405047]">{formatCurrency(monthlyRevenue)} revenue - {formatCurrency(monthlyCosts)} costs</p>
+                  <p className="mt-1 text-sm font-semibold text-[#405047]">{financialReport.monthlyOverview.month} {overviewYear}</p>
+                  <p className="mt-2 text-2xl font-bold">{formatCurrency(financialReport.monthlyOverview.profitAndLoss.profit)}</p>
+                  <p className="mt-1 text-sm text-[#405047]">{formatCurrency(financialReport.monthlyOverview.profitAndLoss.revenue)} revenue - {formatCurrency(financialReport.monthlyOverview.profitAndLoss.costs)} costs</p>
                 </div>
               ) : null}
             </div>
@@ -984,7 +991,7 @@ export default async function CustomerDetailPage({
                 title="Balance Sheet"
                 summary="Current assets and liabilities. This gives the client's net worth position."
                 statementType="balance_sheet"
-                items={balanceSheetItems}
+                items={financialReport.balanceSheetItems}
                 customerId={customer.id}
                 actor={actor}
                 canDelete={!submissionOnly}
@@ -1003,13 +1010,13 @@ export default async function CustomerDetailPage({
                 title="Cash Flow Statement"
                 summary="Personal income and expenses. This shows monthly saving capacity or shortfall."
                 statementType="cash_flow"
-                items={cashFlowItems}
+                items={financialReport.cashFlowItems}
                 customerId={customer.id}
                 actor={actor}
                 canDelete={!submissionOnly}
                 dateLabel="Date / month"
                 statementDateDefault={today}
-                monthlySummary={cashFlowMonthlySummary}
+                monthlySummary={financialReport.monthlyOverview.monthlyCashFlow}
                 reportingYear={overviewYear}
                 reportingMonthIndex={overviewMonthIndex}
                 itemTypes={[
@@ -1062,7 +1069,7 @@ export default async function CustomerDetailPage({
                 title="Business Profit and Loss (Optional)"
                 summary="Use only for self-employed, business owner, freelancer, agent, or side-business clients. For normal salaried clients, personal Cash Flow is usually enough."
                 statementType="profit_loss"
-                items={profitLossItems}
+                items={financialReport.profitLossItems}
                 customerId={customer.id}
                 actor={actor}
                 canDelete={!submissionOnly}

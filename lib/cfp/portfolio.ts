@@ -85,6 +85,28 @@ export type InvestmentValuation = {
   created_at: string;
 };
 
+export type PortfolioTransactionDisplayAmount = {
+  label: "Gross" | "Fee" | "Tax";
+  value: number | string;
+};
+
+export function portfolioTransactionDisplayAmounts(
+  transaction: Pick<InvestmentTransaction, "gross_amount" | "fee_amount" | "tax_amount">,
+): PortfolioTransactionDisplayAmount[] {
+  const gross = Number(transaction.gross_amount);
+  const fee = Number(transaction.fee_amount);
+  const tax = Number(transaction.tax_amount);
+  const amounts: PortfolioTransactionDisplayAmount[] = [];
+
+  if (gross !== 0 || (fee === 0 && tax === 0)) {
+    amounts.push({ label: "Gross", value: transaction.gross_amount });
+  }
+  if (fee !== 0) amounts.push({ label: "Fee", value: transaction.fee_amount });
+  if (tax !== 0) amounts.push({ label: "Tax", value: transaction.tax_amount });
+
+  return amounts;
+}
+
 export const portfolioTransactionTypes = [
   "opening_balance",
   "buy",

@@ -9,6 +9,7 @@ import {
 import { AppShell, EnvNotice, ErrorNotice, PageHeader, Pagination } from "@/app/ui";
 import { formatDate, formatMoney, planningToday } from "@/lib/cfp/format";
 import { getPortfolioDetailData } from "@/lib/cfp/portfolio-data";
+import { portfolioTransactionDisplayAmounts } from "@/lib/cfp/portfolio";
 
 export const dynamic = "force-dynamic";
 
@@ -132,14 +133,23 @@ export default async function PortfolioDetailPage({
               <p className="mt-1 text-sm text-[#68756f]">{detail.transactionCount} transaction{detail.transactionCount === 1 ? "" : "s"}; database-paginated in pages of 20.</p>
             </div>
             <div className="table-wrap"><table className="data-table">
-              <thead><tr><th>Date</th><th>Type</th><th>Holding</th><th>Gross amount</th><th>Scope</th><th>Correction</th></tr></thead>
+              <thead><tr><th>Date</th><th>Type</th><th>Holding</th><th>Amounts</th><th>Scope</th><th>Correction</th></tr></thead>
               <tbody>
                 {detail.transactions.map((transaction) => {
                   const holding = detail.holdings.find((item) => item.id === transaction.holding_id);
                   return <tr key={transaction.id}>
                     <td>{formatDate(transaction.transaction_date)}</td><td>{label(transaction.transaction_type)}</td>
                     <td>{holding?.name || (transaction.holding_id ? "Unknown holding" : "Portfolio cash")}</td>
-                    <td className="font-semibold tabular-nums">{formatMoney(transaction.gross_amount, transaction.currency_code)}</td><td>{label(transaction.cash_flow_scope)}</td>
+                    <td className="tabular-nums">
+                      <div className="grid gap-1">
+                        {portfolioTransactionDisplayAmounts(transaction).map((amount) => (
+                          <span key={amount.label}>
+                            <span className="text-xs font-bold uppercase tracking-wide text-[#68756f]">{amount.label}</span>{" "}
+                            <span className="font-semibold">{formatMoney(amount.value, transaction.currency_code)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </td><td>{label(transaction.cash_flow_scope)}</td>
                     <td>{data.canManage && transaction.transaction_type !== "reversal" ? <details>
                       <summary className="cursor-pointer text-sm font-bold text-[#0f766e]">Record reversal</summary>
                       <form action={reverseInvestmentTransaction} className="mt-2 grid min-w-56 gap-2">

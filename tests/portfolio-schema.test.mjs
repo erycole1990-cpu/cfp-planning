@@ -53,14 +53,48 @@ test("portfolio, holding, transaction, and valuation columns are complete", () =
 test("database integrity uses composite child keys, checks, and useful indexes", () => {
   assert.match(migration, /unique \(id, portfolio_id\)/i);
   assert.match(migration, /foreign key \(holding_id, portfolio_id\)[\s\S]*references public\.investment_holdings\(id, portfolio_id\)/i);
-  assert.match(migration, /gross_amount numeric\([^)]*\) not null check \(gross_amount >= 0\)/i);
-  assert.match(migration, /market_value numeric\([^)]*\) not null check \(market_value >= 0\)/i);
+  assert.match(migration, /gross_amount numeric\([^)]*\) not null[\s\S]*cfp_numeric_is_finite\(gross_amount\)[\s\S]*gross_amount >= 0/i);
+  assert.match(migration, /market_value numeric\([^)]*\) not null[\s\S]*cfp_numeric_is_finite\(market_value\)[\s\S]*market_value >= 0/i);
   assert.match(migration, /check \(\(transaction_type = 'reversal'\) = \(reversal_of_transaction_id is not null\)\)/i);
   assert.match(migration, /investment_portfolios_customer_status_name_idx/i);
   assert.match(migration, /investment_transactions_portfolio_date_idx/i);
   assert.match(migration, /investment_valuations_portfolio_date_idx/i);
   assert.match(migration, /investment_valuations_one_superseding_idx/i);
   assert.match(migration, /foreign key \(reversal_of_transaction_id, portfolio_id\)[\s\S]*references public\.investment_transactions\(id, portfolio_id\) on delete restrict/i);
+});
+
+test("every portfolio numeric column rejects PostgreSQL non-finite values", () => {
+  assert.match(migration, /create or replace function public\.cfp_numeric_is_finite\(requested_value numeric\)/i);
+  for (const specialValue of ["NaN", "Infinity", "-Infinity"]) {
+    assert.ok(migration.includes(`'${specialValue}'::numeric`));
+  }
+
+  const numericColumns = {
+    investment_transactions: ["quantity", "unit_price", "gross_amount", "fee_amount", "tax_amount", "fx_rate_to_base"],
+    investment_valuations: ["market_value", "units", "unit_price", "fx_rate_to_base"],
+    portfolio_benchmark_references: ["weight_percent"],
+    portfolio_review_snapshots: ["total_value", "simple_return_percent", "xirr_percent"],
+  };
+  for (const [table, columns] of Object.entries(numericColumns)) {
+    const start = migration.indexOf(`create table if not exists public.${table}`);
+    const end = migration.indexOf("\n);", start);
+    const definition = migration.slice(start, end);
+    for (const column of columns) {
+      assert.match(
+        definition,
+        new RegExp(`\\b${column}\\s+numeric\\([^)]*\\)[\\s\\S]*?cfp_numeric_is_finite\\(${column}\\)`, "i"),
+        `${table}.${column} lacks an explicit finite-number constraint`,
+      );
+    }
+  }
+
+  for (const value of ["clean_quantity", "clean_unit_price", "clean_gross", "clean_fee", "clean_tax", "clean_fx"]) {
+    assert.match(migration, new RegExp(`not public\\.cfp_numeric_is_finite\\(${value}\\)`, "i"));
+  }
+  for (const value of ["clean_market_value", "clean_units", "clean_unit_price", "clean_fx"]) {
+    assert.match(migration, new RegExp(`not public\\.cfp_numeric_is_finite\\(${value}\\)`, "i"));
+  }
+  assert.match(migration, /Transfer amount and FX rate must be finite numbers/i);
 });
 
 test("history-bearing foreign keys reject parent deletion", () => {
@@ -137,6 +171,29 @@ test("paired portfolio transfers are recorded as internal cash flows", () => {
   const transfer = migration.slice(start, end);
   assert.equal((transfer.match(/clean_fx_source, 'internal', transfer_group/g) || []).length, 2);
   assert.doesNotMatch(transfer, /clean_fx_source, 'external_(in|out)', transfer_group/);
+});
+
+test("transaction audits preserve all canonical economic amount fields", () => {
+  const start = migration.indexOf("create or replace function public.cfp_record_investment_transaction");
+  const end = migration.indexOf("create or replace function public.cfp_record_investment_transfer", start);
+  const transactionRpc = migration.slice(start, end);
+  for (const field of ["transaction_type", "gross_amount", "fee_amount", "tax_amount", "cash_flow_scope", "currency_code"]) {
+    assert.ok(transactionRpc.includes(`'${field}'`), `transaction audit is missing ${field}`);
+  }
+});
+
+test("reversal and valuation lookups do not disclose foreign record existence", () => {
+  const reversalStart = migration.indexOf("create or replace function public.cfp_reverse_investment_transaction");
+  const valuationStart = migration.indexOf("create or replace function public.cfp_record_investment_valuation", reversalStart);
+  const reversalRpc = migration.slice(reversalStart, valuationStart);
+  assert.match(reversalRpc, /where t\.id = original_transaction_id[\s\S]*and public\.cfp_can_manage_investment_portfolio\(t\.portfolio_id\)/i);
+  assert.match(reversalRpc, /if not found then[\s\S]*Transaction is unavailable for reversal/i);
+  assert.doesNotMatch(reversalRpc, /select \* into strict original\b/i);
+
+  const valuationEnd = migration.indexOf("revoke all on function public.cfp_numeric_is_finite", valuationStart);
+  const valuationRpc = migration.slice(valuationStart, valuationEnd);
+  assert.match(valuationRpc, /where v\.id = clean_supersedes[\s\S]*v\.portfolio_id = target_portfolio_id[\s\S]*v\.valuation_scope = clean_scope[\s\S]*v\.holding_id is not distinct from clean_holding_id[\s\S]*v\.valuation_date = clean_date/i);
+  assert.match(valuationRpc, /if not found then[\s\S]*Superseding valuation is unavailable or does not match/i);
 });
 
 test("missing portfolio schema errors give deployment-safe guidance", () => {

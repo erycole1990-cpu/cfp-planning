@@ -1,6 +1,20 @@
 -- Portfolio Analysis V1 foundation: customer-scoped metadata, immutable financial
 -- history, agency-aware RLS, and atomic audited mutation functions.
 
+create or replace function public.cfp_numeric_is_finite(requested_value numeric)
+returns boolean
+language sql
+immutable
+parallel safe
+set search_path = pg_catalog
+as $$
+  select requested_value is null or requested_value not in (
+    'NaN'::numeric,
+    'Infinity'::numeric,
+    '-Infinity'::numeric
+  );
+$$;
+
 create or replace function public.cfp_investment_transaction_scope_is_valid(
   requested_type text,
   requested_scope text
@@ -38,7 +52,12 @@ parallel safe
 set search_path = pg_catalog
 as $$
   select
-    requested_gross >= 0
+    public.cfp_numeric_is_finite(requested_quantity)
+    and public.cfp_numeric_is_finite(requested_unit_price)
+    and public.cfp_numeric_is_finite(requested_gross)
+    and public.cfp_numeric_is_finite(requested_fee)
+    and public.cfp_numeric_is_finite(requested_tax)
+    and requested_gross >= 0
     and requested_fee >= 0
     and requested_tax >= 0
     and (requested_quantity is null or requested_quantity >= 0)
@@ -132,13 +151,19 @@ create table if not exists public.investment_transactions (
       'distribution', 'interest', 'fee', 'tax', 'transfer_in',
       'transfer_out', 'reinvestment', 'reversal'
     )),
-  quantity numeric(28, 10) check (quantity is null or quantity >= 0),
-  unit_price numeric(28, 10) check (unit_price is null or unit_price >= 0),
-  gross_amount numeric(24, 8) not null check (gross_amount >= 0),
-  fee_amount numeric(24, 8) not null default 0 check (fee_amount >= 0),
-  tax_amount numeric(24, 8) not null default 0 check (tax_amount >= 0),
+  quantity numeric(28, 10)
+    check (public.cfp_numeric_is_finite(quantity) and (quantity is null or quantity >= 0)),
+  unit_price numeric(28, 10)
+    check (public.cfp_numeric_is_finite(unit_price) and (unit_price is null or unit_price >= 0)),
+  gross_amount numeric(24, 8) not null
+    check (public.cfp_numeric_is_finite(gross_amount) and gross_amount >= 0),
+  fee_amount numeric(24, 8) not null default 0
+    check (public.cfp_numeric_is_finite(fee_amount) and fee_amount >= 0),
+  tax_amount numeric(24, 8) not null default 0
+    check (public.cfp_numeric_is_finite(tax_amount) and tax_amount >= 0),
   currency_code text not null check (currency_code ~ '^[A-Z]{3}$'),
-  fx_rate_to_base numeric(28, 12) not null check (fx_rate_to_base > 0),
+  fx_rate_to_base numeric(28, 12) not null
+    check (public.cfp_numeric_is_finite(fx_rate_to_base) and fx_rate_to_base > 0),
   fx_rate_date date,
   fx_source text,
   cash_flow_scope text not null
@@ -172,11 +197,15 @@ create table if not exists public.investment_valuations (
   holding_id uuid,
   valuation_scope text not null check (valuation_scope in ('holding', 'portfolio')),
   valuation_date date not null,
-  market_value numeric(24, 8) not null check (market_value >= 0),
-  units numeric(28, 10) check (units is null or units >= 0),
-  unit_price numeric(28, 10) check (unit_price is null or unit_price >= 0),
+  market_value numeric(24, 8) not null
+    check (public.cfp_numeric_is_finite(market_value) and market_value >= 0),
+  units numeric(28, 10)
+    check (public.cfp_numeric_is_finite(units) and (units is null or units >= 0)),
+  unit_price numeric(28, 10)
+    check (public.cfp_numeric_is_finite(unit_price) and (unit_price is null or unit_price >= 0)),
   currency_code text not null check (currency_code ~ '^[A-Z]{3}$'),
-  fx_rate_to_base numeric(28, 12) not null check (fx_rate_to_base > 0),
+  fx_rate_to_base numeric(28, 12) not null
+    check (public.cfp_numeric_is_finite(fx_rate_to_base) and fx_rate_to_base > 0),
   fx_rate_date date,
   fx_source text,
   source text not null default 'manual'
@@ -204,7 +233,10 @@ create table if not exists public.portfolio_benchmark_references (
   provider text,
   currency_code text check (currency_code is null or currency_code ~ '^[A-Z]{3}$'),
   weight_percent numeric(7, 4)
-    check (weight_percent is null or (weight_percent >= 0 and weight_percent <= 100)),
+    check (
+      public.cfp_numeric_is_finite(weight_percent)
+      and (weight_percent is null or (weight_percent >= 0 and weight_percent <= 100))
+    ),
   effective_from date,
   effective_to date,
   is_primary boolean not null default false,
@@ -223,9 +255,12 @@ create table if not exists public.portfolio_review_snapshots (
   methodology_version text not null check (length(trim(methodology_version)) > 0),
   risk_profile_at_review text
     check (risk_profile_at_review is null or risk_profile_at_review in ('conservative', 'moderate', 'aggressive')),
-  total_value numeric(24, 8) not null check (total_value >= 0),
-  simple_return_percent numeric(18, 8),
-  xirr_percent numeric(18, 8),
+  total_value numeric(24, 8) not null
+    check (public.cfp_numeric_is_finite(total_value) and total_value >= 0),
+  simple_return_percent numeric(18, 8)
+    check (public.cfp_numeric_is_finite(simple_return_percent)),
+  xirr_percent numeric(18, 8)
+    check (public.cfp_numeric_is_finite(xirr_percent)),
   xirr_status text not null default 'not_calculated'
     check (xirr_status in (
       'not_calculated', 'ready', 'invalid_cash_flows', 'missing_valuation',
@@ -647,6 +682,14 @@ begin
   if clean_date is null then
     raise exception 'Transaction date is required.' using errcode = '23514';
   end if;
+  if not public.cfp_numeric_is_finite(clean_quantity)
+    or not public.cfp_numeric_is_finite(clean_unit_price)
+    or not public.cfp_numeric_is_finite(clean_gross)
+    or not public.cfp_numeric_is_finite(clean_fee)
+    or not public.cfp_numeric_is_finite(clean_tax)
+    or not public.cfp_numeric_is_finite(clean_fx) then
+    raise exception 'Transaction amounts, units, prices, fees, taxes, and FX must be finite numbers.' using errcode = '23514';
+  end if;
   if clean_fx <= 0 then
     raise exception 'Transaction amounts, units, prices, fees, taxes, and FX must be non-negative.' using errcode = '23514';
   end if;
@@ -726,6 +769,9 @@ begin
       'transaction_type', clean_type,
       'transaction_date', clean_date,
       'gross_amount', clean_gross,
+      'fee_amount', clean_fee,
+      'tax_amount', clean_tax,
+      'cash_flow_scope', clean_scope,
       'currency_code', clean_currency
     )
   );
@@ -779,6 +825,10 @@ begin
   end if;
   if source_portfolio.base_currency is distinct from destination_portfolio.base_currency then
     raise exception 'Phase 1 transfers require matching portfolio base currencies.' using errcode = '23514';
+  end if;
+  if not public.cfp_numeric_is_finite(transfer_amount)
+    or not public.cfp_numeric_is_finite(transfer_fx_rate_to_base) then
+    raise exception 'Transfer amount and FX rate must be finite numbers.' using errcode = '23514';
   end if;
   if transfer_date is null or transfer_amount is null or transfer_amount <= 0
     or transfer_fx_rate_to_base is null or transfer_fx_rate_to_base <= 0 then
@@ -842,6 +892,9 @@ begin
         'transfer_group_id', transfer_group,
         'transaction_type', 'transfer_out',
         'gross_amount', transfer_amount,
+        'fee_amount', 0,
+        'tax_amount', 0,
+        'cash_flow_scope', 'internal',
         'currency_code', clean_currency
       )
     ),
@@ -860,6 +913,9 @@ begin
         'transfer_group_id', transfer_group,
         'transaction_type', 'transfer_in',
         'gross_amount', transfer_amount,
+        'fee_amount', 0,
+        'tax_amount', 0,
+        'cash_flow_scope', 'internal',
         'currency_code', clean_currency
       )
     );
@@ -887,12 +943,17 @@ declare
   counterpart_reversal_id uuid;
   reversal_event_group uuid := gen_random_uuid();
 begin
-  select * into strict original
-  from public.investment_transactions t
-  where t.id = original_transaction_id;
+  if auth.uid() is null then
+    raise exception 'Transaction is unavailable for reversal.' using errcode = '42501';
+  end if;
 
-  if auth.uid() is null or not public.cfp_can_manage_investment_portfolio(original.portfolio_id) then
-    raise exception 'You are not allowed to reverse this transaction.' using errcode = '42501';
+  select * into original
+  from public.investment_transactions t
+  where t.id = original_transaction_id
+    and public.cfp_can_manage_investment_portfolio(t.portfolio_id);
+
+  if not found then
+    raise exception 'Transaction is unavailable for reversal.' using errcode = '42501';
   end if;
   if original.transaction_type = 'reversal' then
     raise exception 'A reversal transaction cannot itself be reversed.' using errcode = '23514';
@@ -964,7 +1025,14 @@ begin
       'customer_id', portfolio_row.customer_id,
       'portfolio_id', original.portfolio_id,
       'reversal_of_transaction_id', original.id,
-      'transaction_date', reversal_date
+      'transaction_type', 'reversal',
+      'original_transaction_type', original.transaction_type,
+      'transaction_date', reversal_date,
+      'gross_amount', original.gross_amount,
+      'fee_amount', original.fee_amount,
+      'tax_amount', original.tax_amount,
+      'cash_flow_scope', original.cash_flow_scope,
+      'currency_code', original.currency_code
     )
   );
 
@@ -1000,7 +1068,14 @@ begin
         'customer_id', counterpart_portfolio.customer_id,
         'portfolio_id', counterpart.portfolio_id,
         'reversal_of_transaction_id', counterpart.id,
-        'transaction_date', reversal_date
+        'transaction_type', 'reversal',
+        'original_transaction_type', counterpart.transaction_type,
+        'transaction_date', reversal_date,
+        'gross_amount', counterpart.gross_amount,
+        'fee_amount', counterpart.fee_amount,
+        'tax_amount', counterpart.tax_amount,
+        'cash_flow_scope', counterpart.cash_flow_scope,
+        'currency_code', counterpart.currency_code
       )
     );
   end if;
@@ -1043,6 +1118,12 @@ begin
   if clean_scope not in ('holding', 'portfolio') or clean_date is null or clean_market_value is null then
     raise exception 'Valuation scope, date, and market value are required.' using errcode = '23514';
   end if;
+  if not public.cfp_numeric_is_finite(clean_market_value)
+    or not public.cfp_numeric_is_finite(clean_units)
+    or not public.cfp_numeric_is_finite(clean_unit_price)
+    or not public.cfp_numeric_is_finite(clean_fx) then
+    raise exception 'Valuation amounts, units, prices, and FX must be finite numbers.' using errcode = '23514';
+  end if;
   if clean_market_value < 0 or clean_units < 0 or clean_unit_price < 0 or clean_fx <= 0 then
     raise exception 'Valuation amounts, units, prices, and FX must be non-negative.' using errcode = '23514';
   end if;
@@ -1082,15 +1163,16 @@ begin
   );
 
   if clean_supersedes is not null then
-    select * into strict original_valuation
+    select * into original_valuation
     from public.investment_valuations v
-    where v.id = clean_supersedes;
+    where v.id = clean_supersedes
+      and v.portfolio_id = target_portfolio_id
+      and v.valuation_scope = clean_scope
+      and v.holding_id is not distinct from clean_holding_id
+      and v.valuation_date = clean_date;
 
-    if original_valuation.portfolio_id is distinct from target_portfolio_id
-      or original_valuation.valuation_scope is distinct from clean_scope
-      or original_valuation.holding_id is distinct from clean_holding_id
-      or original_valuation.valuation_date is distinct from clean_date then
-      raise exception 'Superseding valuation must match the original scope, holding, portfolio, and date.' using errcode = '23514';
+    if not found then
+      raise exception 'Superseding valuation is unavailable or does not match the requested portfolio, scope, holding, and date.' using errcode = '23514';
     end if;
     if exists (
       select 1 from public.investment_valuations replacement
@@ -1166,6 +1248,7 @@ begin
 end;
 $$;
 
+revoke all on function public.cfp_numeric_is_finite(numeric) from public;
 revoke all on function public.cfp_investment_transaction_scope_is_valid(text, text) from public;
 revoke all on function public.cfp_investment_transaction_amounts_are_valid(text, uuid, numeric, numeric, numeric, numeric, numeric) from public;
 revoke all on function public.cfp_prepare_investment_portfolio() from public;

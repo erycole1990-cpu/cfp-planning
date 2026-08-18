@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  portfolioTransactionDisplayAmounts,
   portfolioTransactionScopeRules,
   validatePortfolioTransactionSemantics,
 } from "../lib/cfp/portfolio.ts";
@@ -63,6 +64,29 @@ test("standalone fees and taxes have one canonical amount field", () => {
     feeAmount: 1,
     taxAmount: 15,
   }), /zero gross and fee/i);
+
+  assert.deepEqual(portfolioTransactionDisplayAmounts({
+    gross_amount: "0",
+    fee_amount: "25.00",
+    tax_amount: "0",
+  }), [{ label: "Fee", value: "25.00" }]);
+  assert.deepEqual(portfolioTransactionDisplayAmounts({
+    gross_amount: "0",
+    fee_amount: "0",
+    tax_amount: "8.00",
+  }), [{ label: "Tax", value: "8.00" }]);
+});
+
+test("transaction presentation preserves gross, fee, and tax details", () => {
+  assert.deepEqual(portfolioTransactionDisplayAmounts({
+    gross_amount: "1000.00",
+    fee_amount: "10.00",
+    tax_amount: "2.00",
+  }), [
+    { label: "Gross", value: "1000.00" },
+    { label: "Fee", value: "10.00" },
+    { label: "Tax", value: "2.00" },
+  ]);
 });
 
 test("trade-like transactions require a holding, quantity, and consideration", () => {

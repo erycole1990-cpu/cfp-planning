@@ -151,15 +151,15 @@ exception when check_violation then null;
 end;
 $$;
 
-select public.cfp_record_investment_transaction(
+select set_config('portfolio_test.fee_id', public.cfp_record_investment_transaction(
   current_setting('portfolio_test.primary_portfolio_id')::uuid,
   '{"transaction_date":"2026-01-05","transaction_type":"fee","gross_amount":0,"fee_amount":25,"tax_amount":0,"currency_code":"MYR","fx_rate_to_base":1,"cash_flow_scope":"internal"}'::jsonb
-);
+)::text, true);
 
-select public.cfp_record_investment_transaction(
+select set_config('portfolio_test.tax_id', public.cfp_record_investment_transaction(
   current_setting('portfolio_test.primary_portfolio_id')::uuid,
   '{"transaction_date":"2026-01-05","transaction_type":"tax","gross_amount":0,"fee_amount":0,"tax_amount":15,"currency_code":"MYR","fx_rate_to_base":1,"cash_flow_scope":"internal"}'::jsonb
-);
+)::text, true);
 
 do $$
 begin
@@ -169,6 +169,41 @@ begin
   );
   raise exception 'Expected ambiguous fee amounts to fail';
 exception when check_violation then null;
+end;
+$$;
+
+do $$
+declare
+  invalid_payload jsonb;
+  transaction_count_before bigint;
+begin
+  select count(*) into transaction_count_before from public.investment_transactions;
+  foreach invalid_payload in array array[
+    '{"transaction_date":"2026-01-05","transaction_type":"contribution","gross_amount":"NaN","currency_code":"MYR","fx_rate_to_base":1,"cash_flow_scope":"external_in"}'::jsonb,
+    '{"transaction_date":"2026-01-05","transaction_type":"fee","gross_amount":0,"fee_amount":"NaN","tax_amount":0,"currency_code":"MYR","fx_rate_to_base":1,"cash_flow_scope":"internal"}'::jsonb,
+    '{"transaction_date":"2026-01-05","transaction_type":"tax","gross_amount":0,"fee_amount":0,"tax_amount":"NaN","currency_code":"MYR","fx_rate_to_base":1,"cash_flow_scope":"internal"}'::jsonb,
+    jsonb_build_object('holding_id', current_setting('portfolio_test.primary_holding_id')::uuid, 'transaction_date', '2026-01-05', 'transaction_type', 'buy', 'quantity', 'NaN', 'gross_amount', 100, 'currency_code', 'MYR', 'fx_rate_to_base', 1, 'cash_flow_scope', 'internal'),
+    jsonb_build_object('holding_id', current_setting('portfolio_test.primary_holding_id')::uuid, 'transaction_date', '2026-01-05', 'transaction_type', 'buy', 'quantity', 1, 'unit_price', 'NaN', 'gross_amount', 100, 'currency_code', 'MYR', 'fx_rate_to_base', 1, 'cash_flow_scope', 'internal'),
+    '{"transaction_date":"2026-01-05","transaction_type":"contribution","gross_amount":10,"currency_code":"MYR","fx_rate_to_base":"NaN","cash_flow_scope":"external_in"}'::jsonb,
+    '{"transaction_date":"2026-01-05","transaction_type":"contribution","gross_amount":"Infinity","currency_code":"MYR","fx_rate_to_base":1,"cash_flow_scope":"external_in"}'::jsonb,
+    '{"transaction_date":"2026-01-05","transaction_type":"contribution","gross_amount":"-Infinity","currency_code":"MYR","fx_rate_to_base":1,"cash_flow_scope":"external_in"}'::jsonb
+  ] loop
+    begin
+      perform public.cfp_record_investment_transaction(
+        current_setting('portfolio_test.primary_portfolio_id')::uuid,
+        invalid_payload
+      );
+      raise exception 'Expected non-finite transaction payload to fail: %', invalid_payload;
+    exception when check_violation then
+      if sqlerrm not like '%must be finite numbers%' then
+        raise exception 'Non-finite transaction failed without the finite-number error: %', sqlerrm;
+      end if;
+    end;
+  end loop;
+
+  if (select count(*) from public.investment_transactions) <> transaction_count_before then
+    raise exception 'A non-finite transaction payload entered immutable history';
+  end if;
 end;
 $$;
 
@@ -221,6 +256,40 @@ select set_config('portfolio_test.buy_id', public.cfp_record_investment_transact
 )::text, true);
 
 do $$
+declare
+  transaction_count_before bigint;
+  original_before jsonb;
+begin
+  select count(*) into transaction_count_before from public.investment_transactions;
+  select to_jsonb(t) into original_before
+  from public.investment_transactions t
+  where t.id = current_setting('portfolio_test.buy_id')::uuid;
+
+  perform set_config('portfolio_test.fail_audit_action', 'investment_transaction_reversed', true);
+  begin
+    perform public.cfp_reverse_investment_transaction(
+      current_setting('portfolio_test.buy_id')::uuid,
+      '2026-01-06',
+      'Synthetic reversal audit failure'
+    );
+    raise exception 'Expected required reversal audit failure';
+  exception when check_violation then null;
+  end;
+  perform set_config('portfolio_test.fail_audit_action', '', true);
+
+  if (select count(*) from public.investment_transactions) <> transaction_count_before
+    or exists (
+      select 1 from public.investment_transactions
+      where reversal_of_transaction_id = current_setting('portfolio_test.buy_id')::uuid
+    )
+    or (select to_jsonb(t) from public.investment_transactions t
+        where t.id = current_setting('portfolio_test.buy_id')::uuid) is distinct from original_before then
+    raise exception 'Reversal state changed despite required audit failure';
+  end if;
+end;
+$$;
+
+do $$
 begin
   perform public.cfp_record_investment_transaction(
     current_setting('portfolio_test.primary_portfolio_id')::uuid,
@@ -271,6 +340,47 @@ begin
   );
   raise exception 'Expected reversal of a reversal to fail';
 exception when check_violation then null;
+end;
+$$;
+
+do $$
+declare
+  transaction_count_before bigint;
+  invalid_amount numeric;
+begin
+  select count(*) into transaction_count_before from public.investment_transactions;
+  foreach invalid_amount in array array['NaN'::numeric, 'Infinity'::numeric, '-Infinity'::numeric] loop
+    begin
+      perform public.cfp_record_investment_transfer(
+        current_setting('portfolio_test.primary_portfolio_id')::uuid,
+        current_setting('portfolio_test.secondary_portfolio_id')::uuid,
+        '2026-01-08', invalid_amount, 'MYR', 1, null, null,
+        'Synthetic non-finite transfer amount'
+      );
+      raise exception 'Expected non-finite transfer amount to fail: %', invalid_amount;
+    exception when check_violation then
+      if sqlerrm not like '%must be finite numbers%' then
+        raise exception 'Non-finite transfer amount failed without the finite-number error: %', sqlerrm;
+      end if;
+    end;
+    begin
+      perform public.cfp_record_investment_transfer(
+        current_setting('portfolio_test.primary_portfolio_id')::uuid,
+        current_setting('portfolio_test.secondary_portfolio_id')::uuid,
+        '2026-01-08', 1, 'USD', invalid_amount, '2026-01-08', 'Synthetic FX source',
+        'Synthetic non-finite transfer FX'
+      );
+      raise exception 'Expected non-finite transfer FX to fail: %', invalid_amount;
+    exception when check_violation then
+      if sqlerrm not like '%must be finite numbers%' then
+        raise exception 'Non-finite transfer FX failed without the finite-number error: %', sqlerrm;
+      end if;
+    end;
+  end loop;
+
+  if (select count(*) from public.investment_transactions) <> transaction_count_before then
+    raise exception 'A non-finite transfer entered immutable history';
+  end if;
 end;
 $$;
 
@@ -347,6 +457,43 @@ begin
 end;
 $$;
 
+do $$
+declare
+  transaction_count_before bigint;
+  transfer_transaction_id uuid;
+begin
+  select count(*) into transaction_count_before from public.investment_transactions;
+  select id into strict transfer_transaction_id
+  from public.investment_transactions
+  where transfer_group_id = current_setting('portfolio_test.transfer_group_id')::uuid
+  order by transaction_type
+  limit 1;
+
+  perform set_config('portfolio_test.fail_audit_action', 'investment_transaction_reversed', true);
+  begin
+    perform public.cfp_reverse_investment_transaction(
+      transfer_transaction_id,
+      '2026-01-10',
+      'Synthetic paired reversal audit failure'
+    );
+    raise exception 'Expected required paired reversal audit failure';
+  exception when check_violation then null;
+  end;
+  perform set_config('portfolio_test.fail_audit_action', '', true);
+
+  if (select count(*) from public.investment_transactions) <> transaction_count_before
+    or exists (
+      select 1
+      from public.investment_transactions reversal
+      join public.investment_transactions original
+        on original.id = reversal.reversal_of_transaction_id
+      where original.transfer_group_id = current_setting('portfolio_test.transfer_group_id')::uuid
+    ) then
+    raise exception 'A partial transfer reversal remained after required audit failure';
+  end if;
+end;
+$$;
+
 select set_config('portfolio_test.original_holding_valuation_id', public.cfp_record_investment_valuation(
   current_setting('portfolio_test.primary_portfolio_id')::uuid,
   jsonb_build_object(
@@ -374,6 +521,86 @@ select set_config('portfolio_test.superseding_valuation_id', public.cfp_record_i
     'supersedes_valuation_id', current_setting('portfolio_test.original_holding_valuation_id')::uuid
   )
 )::text, true);
+
+do $$
+declare
+  invalid_payload jsonb;
+  valuation_count_before bigint;
+begin
+  select count(*) into valuation_count_before from public.investment_valuations;
+  foreach invalid_payload in array array[
+    '{"valuation_scope":"portfolio","valuation_date":"2026-02-02","market_value":"NaN","currency_code":"MYR","fx_rate_to_base":1,"source":"manual","evidence_status":"unverified"}'::jsonb,
+    jsonb_build_object('valuation_scope', 'holding', 'holding_id', current_setting('portfolio_test.primary_holding_id')::uuid, 'valuation_date', '2026-02-02', 'market_value', 10, 'units', 'NaN', 'currency_code', 'MYR', 'fx_rate_to_base', 1, 'source', 'manual', 'evidence_status', 'unverified'),
+    jsonb_build_object('valuation_scope', 'holding', 'holding_id', current_setting('portfolio_test.primary_holding_id')::uuid, 'valuation_date', '2026-02-02', 'market_value', 10, 'unit_price', 'NaN', 'currency_code', 'MYR', 'fx_rate_to_base', 1, 'source', 'manual', 'evidence_status', 'unverified'),
+    '{"valuation_scope":"portfolio","valuation_date":"2026-02-02","market_value":10,"currency_code":"MYR","fx_rate_to_base":"NaN","source":"manual","evidence_status":"unverified"}'::jsonb,
+    '{"valuation_scope":"portfolio","valuation_date":"2026-02-02","market_value":"Infinity","currency_code":"MYR","fx_rate_to_base":1,"source":"manual","evidence_status":"unverified"}'::jsonb,
+    '{"valuation_scope":"portfolio","valuation_date":"2026-02-02","market_value":"-Infinity","currency_code":"MYR","fx_rate_to_base":1,"source":"manual","evidence_status":"unverified"}'::jsonb
+  ] loop
+    begin
+      perform public.cfp_record_investment_valuation(
+        current_setting('portfolio_test.primary_portfolio_id')::uuid,
+        invalid_payload
+      );
+      raise exception 'Expected non-finite valuation payload to fail: %', invalid_payload;
+    exception when check_violation then
+      if sqlerrm not like '%must be finite numbers%' then
+        raise exception 'Non-finite valuation failed without the finite-number error: %', sqlerrm;
+      end if;
+    end;
+  end loop;
+
+  if (select count(*) from public.investment_valuations) <> valuation_count_before then
+    raise exception 'A non-finite valuation payload entered immutable history';
+  end if;
+end;
+$$;
+
+select set_config('portfolio_test.audit_rollback_valuation_id', public.cfp_record_investment_valuation(
+  current_setting('portfolio_test.primary_portfolio_id')::uuid,
+  '{"valuation_scope":"portfolio","valuation_date":"2026-02-02","market_value":5000,"currency_code":"MYR","fx_rate_to_base":1,"source":"manual","evidence_status":"adviser_verified"}'::jsonb
+)::text, true);
+
+do $$
+declare
+  valuation_count_before bigint;
+  original_before jsonb;
+begin
+  select count(*) into valuation_count_before from public.investment_valuations;
+  select to_jsonb(v) into original_before
+  from public.investment_valuations v
+  where v.id = current_setting('portfolio_test.audit_rollback_valuation_id')::uuid;
+
+  perform set_config('portfolio_test.fail_audit_action', 'investment_valuation_recorded', true);
+  begin
+    perform public.cfp_record_investment_valuation(
+      current_setting('portfolio_test.primary_portfolio_id')::uuid,
+      jsonb_build_object(
+        'valuation_scope', 'portfolio',
+        'valuation_date', '2026-02-02',
+        'market_value', 5100,
+        'currency_code', 'MYR',
+        'fx_rate_to_base', 1,
+        'source', 'manual',
+        'evidence_status', 'adviser_verified',
+        'supersedes_valuation_id', current_setting('portfolio_test.audit_rollback_valuation_id')::uuid
+      )
+    );
+    raise exception 'Expected required valuation audit failure';
+  exception when check_violation then null;
+  end;
+  perform set_config('portfolio_test.fail_audit_action', '', true);
+
+  if (select count(*) from public.investment_valuations) <> valuation_count_before
+    or exists (
+      select 1 from public.investment_valuations
+      where supersedes_valuation_id = current_setting('portfolio_test.audit_rollback_valuation_id')::uuid
+    )
+    or (select to_jsonb(v) from public.investment_valuations v
+        where v.id = current_setting('portfolio_test.audit_rollback_valuation_id')::uuid) is distinct from original_before then
+    raise exception 'Valuation authority changed despite required audit failure';
+  end if;
+end;
+$$;
 
 do $$
 begin
@@ -414,6 +641,56 @@ end;
 $$;
 
 reset role;
+
+do $$
+declare
+  command text;
+  transaction_count_before bigint := (select count(*) from public.investment_transactions);
+  valuation_count_before bigint := (select count(*) from public.investment_valuations);
+  snapshot_count_before bigint := (select count(*) from public.portfolio_review_snapshots);
+  benchmark_count_before bigint := (select count(*) from public.portfolio_benchmark_references);
+begin
+  if public.cfp_numeric_is_finite('NaN'::numeric)
+    or public.cfp_numeric_is_finite('Infinity'::numeric)
+    or public.cfp_numeric_is_finite('-Infinity'::numeric)
+    or not public.cfp_numeric_is_finite(null)
+    or not public.cfp_numeric_is_finite(1.25) then
+    raise exception 'Finite-number predicate returned an incorrect result';
+  end if;
+
+  foreach command in array array[
+    format('insert into public.investment_transactions (portfolio_id, transaction_date, transaction_type, gross_amount, currency_code, fx_rate_to_base, cash_flow_scope) values (%L::uuid, ''2026-03-01'', ''contribution'', ''NaN'', ''MYR'', 1, ''external_in'')', current_setting('portfolio_test.primary_portfolio_id')),
+    format('insert into public.investment_transactions (portfolio_id, transaction_date, transaction_type, gross_amount, fee_amount, currency_code, fx_rate_to_base, cash_flow_scope) values (%L::uuid, ''2026-03-01'', ''fee'', 0, ''NaN'', ''MYR'', 1, ''internal'')', current_setting('portfolio_test.primary_portfolio_id')),
+    format('insert into public.investment_transactions (portfolio_id, transaction_date, transaction_type, gross_amount, tax_amount, currency_code, fx_rate_to_base, cash_flow_scope) values (%L::uuid, ''2026-03-01'', ''tax'', 0, ''NaN'', ''MYR'', 1, ''internal'')', current_setting('portfolio_test.primary_portfolio_id')),
+    format('insert into public.investment_transactions (portfolio_id, holding_id, transaction_date, transaction_type, quantity, gross_amount, currency_code, fx_rate_to_base, cash_flow_scope) values (%L::uuid, %L::uuid, ''2026-03-01'', ''buy'', ''NaN'', 1, ''MYR'', 1, ''internal'')', current_setting('portfolio_test.primary_portfolio_id'), current_setting('portfolio_test.primary_holding_id')),
+    format('insert into public.investment_transactions (portfolio_id, holding_id, transaction_date, transaction_type, quantity, unit_price, gross_amount, currency_code, fx_rate_to_base, cash_flow_scope) values (%L::uuid, %L::uuid, ''2026-03-01'', ''buy'', 1, ''NaN'', 1, ''MYR'', 1, ''internal'')', current_setting('portfolio_test.primary_portfolio_id'), current_setting('portfolio_test.primary_holding_id')),
+    format('insert into public.investment_transactions (portfolio_id, transaction_date, transaction_type, gross_amount, currency_code, fx_rate_to_base, cash_flow_scope) values (%L::uuid, ''2026-03-01'', ''contribution'', 1, ''MYR'', ''NaN'', ''external_in'')', current_setting('portfolio_test.primary_portfolio_id')),
+    format('insert into public.investment_transactions (portfolio_id, transaction_date, transaction_type, gross_amount, currency_code, fx_rate_to_base, cash_flow_scope) values (%L::uuid, ''2026-03-01'', ''contribution'', ''Infinity'', ''MYR'', 1, ''external_in'')', current_setting('portfolio_test.primary_portfolio_id')),
+    format('insert into public.investment_transactions (portfolio_id, transaction_date, transaction_type, gross_amount, currency_code, fx_rate_to_base, cash_flow_scope) values (%L::uuid, ''2026-03-01'', ''contribution'', ''-Infinity'', ''MYR'', 1, ''external_in'')', current_setting('portfolio_test.primary_portfolio_id')),
+    format('insert into public.investment_valuations (portfolio_id, valuation_scope, valuation_date, market_value, currency_code, fx_rate_to_base) values (%L::uuid, ''portfolio'', ''2026-03-01'', ''NaN'', ''MYR'', 1)', current_setting('portfolio_test.primary_portfolio_id')),
+    format('insert into public.investment_valuations (portfolio_id, holding_id, valuation_scope, valuation_date, market_value, units, currency_code, fx_rate_to_base) values (%L::uuid, %L::uuid, ''holding'', ''2026-03-01'', 1, ''NaN'', ''MYR'', 1)', current_setting('portfolio_test.primary_portfolio_id'), current_setting('portfolio_test.primary_holding_id')),
+    format('insert into public.investment_valuations (portfolio_id, holding_id, valuation_scope, valuation_date, market_value, unit_price, currency_code, fx_rate_to_base) values (%L::uuid, %L::uuid, ''holding'', ''2026-03-01'', 1, ''NaN'', ''MYR'', 1)', current_setting('portfolio_test.primary_portfolio_id'), current_setting('portfolio_test.primary_holding_id')),
+    format('insert into public.investment_valuations (portfolio_id, valuation_scope, valuation_date, market_value, currency_code, fx_rate_to_base) values (%L::uuid, ''portfolio'', ''2026-03-01'', 1, ''MYR'', ''NaN'')', current_setting('portfolio_test.primary_portfolio_id')),
+    format('insert into public.portfolio_review_snapshots (portfolio_id, version_number, as_of_date, base_currency, methodology_version, total_value, created_by_name) values (%L::uuid, 91, ''2026-03-01'', ''MYR'', ''non-finite-test'', ''NaN'', ''Synthetic Adviser'')', current_setting('portfolio_test.primary_portfolio_id')),
+    format('insert into public.portfolio_review_snapshots (portfolio_id, version_number, as_of_date, base_currency, methodology_version, total_value, simple_return_percent, created_by_name) values (%L::uuid, 92, ''2026-03-01'', ''MYR'', ''non-finite-test'', 1, ''NaN'', ''Synthetic Adviser'')', current_setting('portfolio_test.primary_portfolio_id')),
+    format('insert into public.portfolio_review_snapshots (portfolio_id, version_number, as_of_date, base_currency, methodology_version, total_value, xirr_percent, created_by_name) values (%L::uuid, 93, ''2026-03-01'', ''MYR'', ''non-finite-test'', 1, ''NaN'', ''Synthetic Adviser'')', current_setting('portfolio_test.primary_portfolio_id')),
+    format('insert into public.portfolio_benchmark_references (portfolio_id, name, weight_percent) values (%L::uuid, ''Non-finite benchmark'', ''NaN'')', current_setting('portfolio_test.primary_portfolio_id'))
+  ] loop
+    begin
+      execute command;
+      raise exception 'Expected database-level non-finite value to fail: %', command;
+    exception when check_violation or numeric_value_out_of_range then null;
+    end;
+  end loop;
+
+  if (select count(*) from public.investment_transactions) <> transaction_count_before
+    or (select count(*) from public.investment_valuations) <> valuation_count_before
+    or (select count(*) from public.portfolio_review_snapshots) <> snapshot_count_before
+    or (select count(*) from public.portfolio_benchmark_references) <> benchmark_count_before then
+    raise exception 'A direct database non-finite value entered a portfolio table';
+  end if;
+end;
+$$;
 
 insert into public.portfolio_review_snapshots (
   id, portfolio_id, version_number, period_start, as_of_date, base_currency,
@@ -569,6 +846,24 @@ begin
   if (select count(*) from public.audit_logs where customer_id = '90000000-0000-0000-0000-000000000021' and action like 'investment_%') < 10 then
     raise exception 'Expected atomic investment audit events were not recorded';
   end if;
+  if not exists (
+    select 1 from public.audit_logs
+    where entity_id = current_setting('portfolio_test.fee_id')::uuid
+      and payload @> '{"transaction_type":"fee","gross_amount":0,"fee_amount":25,"tax_amount":0,"cash_flow_scope":"internal","currency_code":"MYR"}'::jsonb
+  ) or not exists (
+    select 1 from public.audit_logs
+    where entity_id = current_setting('portfolio_test.tax_id')::uuid
+      and payload @> '{"transaction_type":"tax","gross_amount":0,"fee_amount":0,"tax_amount":15,"cash_flow_scope":"internal","currency_code":"MYR"}'::jsonb
+  ) then
+    raise exception 'Fee or tax audit payload omitted canonical economic amount details';
+  end if;
+  if exists (
+    select 1 from public.audit_logs
+    where action in ('investment_transfer_recorded', 'investment_transaction_reversed')
+      and not (payload ?& array['transaction_type', 'gross_amount', 'fee_amount', 'tax_amount', 'cash_flow_scope', 'currency_code'])
+  ) then
+    raise exception 'Transfer or reversal audit payload omitted canonical economic amount details';
+  end if;
 end;
 $$;
 set local role authenticated;
@@ -620,6 +915,42 @@ begin
 end;
 $$;
 
+do $$
+declare
+  missing_state text;
+  missing_message text;
+  unauthorized_state text;
+  unauthorized_message text;
+begin
+  begin
+    perform public.cfp_reverse_investment_transaction(
+      '99999999-0000-0000-0000-000000000099'::uuid,
+      '2026-02-10',
+      'Nonexistent reversal probe'
+    );
+  exception when others then
+    get stacked diagnostics missing_state = returned_sqlstate, missing_message = message_text;
+  end;
+  begin
+    perform public.cfp_reverse_investment_transaction(
+      current_setting('portfolio_test.buy_id')::uuid,
+      '2026-02-10',
+      'Same-agency unauthorized reversal probe'
+    );
+  exception when others then
+    get stacked diagnostics unauthorized_state = returned_sqlstate, unauthorized_message = message_text;
+  end;
+
+  if missing_state is null or unauthorized_state is null
+    or missing_state is distinct from unauthorized_state
+    or missing_message is distinct from unauthorized_message
+    or missing_state <> '42501'
+    or missing_message <> 'Transaction is unavailable for reversal.' then
+    raise exception 'Same-agency unauthorized and nonexistent reversal probes were distinguishable';
+  end if;
+end;
+$$;
+
 select set_config(
   'request.jwt.claims',
   '{"sub":"94444444-0000-0000-0000-000000000014","email":"other-agency-adviser@example.test","role":"authenticated"}',
@@ -641,6 +972,42 @@ begin
   );
   raise exception 'Expected cross-agency valuation mutation to fail';
 exception when insufficient_privilege then null;
+end;
+$$;
+
+do $$
+declare
+  missing_state text;
+  missing_message text;
+  unauthorized_state text;
+  unauthorized_message text;
+begin
+  begin
+    perform public.cfp_reverse_investment_transaction(
+      '99999999-0000-0000-0000-000000000099'::uuid,
+      '2026-02-10',
+      'Nonexistent cross-agency reversal probe'
+    );
+  exception when others then
+    get stacked diagnostics missing_state = returned_sqlstate, missing_message = message_text;
+  end;
+  begin
+    perform public.cfp_reverse_investment_transaction(
+      current_setting('portfolio_test.buy_id')::uuid,
+      '2026-02-10',
+      'Cross-agency unauthorized reversal probe'
+    );
+  exception when others then
+    get stacked diagnostics unauthorized_state = returned_sqlstate, unauthorized_message = message_text;
+  end;
+
+  if missing_state is null or unauthorized_state is null
+    or missing_state is distinct from unauthorized_state
+    or missing_message is distinct from unauthorized_message
+    or missing_state <> '42501'
+    or missing_message <> 'Transaction is unavailable for reversal.' then
+    raise exception 'Cross-agency unauthorized and nonexistent reversal probes were distinguishable';
+  end if;
 end;
 $$;
 

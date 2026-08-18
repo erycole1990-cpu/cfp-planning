@@ -628,6 +628,9 @@ export default async function CustomerDetailPage({
         title={customer?.full_name || "Customer"}
         actions={
          <div className="flex flex-wrap gap-2">
+            <Link className="btn btn-secondary" href={`/customers/${id}/portfolios`}>
+              Portfolio Analysis
+            </Link>
             <Link
               className="btn btn-secondary"
               href={`/customers/${id}/statements?year=${overviewYear}&month=${overviewMonthIndex}`}

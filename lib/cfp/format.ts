@@ -177,15 +177,23 @@ export function planningDateTimeIso(
   return new Date(candidateUtc).toISOString();
 }
 
-export function formatCurrency(value: number | string | null | undefined) {
+export function formatMoney(
+  value: number | string | null | undefined,
+  currencyCode = "MYR",
+) {
   const amount = Number(value ?? 0);
+  const currency = currencyCode.trim().toUpperCase();
   return new Intl.NumberFormat("en-MY", {
     style: "currency",
-    currency: "MYR",
+    currency,
     currencyDisplay: "narrowSymbol",
     minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
     maximumFractionDigits: 2,
   }).format(amount);
+}
+
+export function formatCurrency(value: number | string | null | undefined) {
+  return formatMoney(value, "MYR");
 }
 
 export function formatDate(value: string | null | undefined) {

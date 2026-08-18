@@ -188,6 +188,15 @@ export function canAccessCustomer(access: AccessContext, customer: Pick<Customer
   return false;
 }
 
+export function canManageCustomer(
+  access: AccessContext,
+  customer: Pick<Customer, "assigned_agent_user_id" | "client_user_id">,
+) {
+  if (isPersonalCustomer(access, customer)) return false;
+  if (access.isAdmin) return true;
+  return access.isAgent && customer.assigned_agent_user_id === access.user.id;
+}
+
 export function filterCustomersForAccess<T extends Pick<Customer, "assigned_agent_user_id" | "client_user_id" | "email">>(
   access: AccessContext,
   customers: T[],

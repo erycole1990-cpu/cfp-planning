@@ -73,6 +73,84 @@ create trigger portfolio_test_reject_audit
 before insert on public.audit_logs
 for each row execute function public.cfp_portfolio_test_reject_audit();
 
+do $$
+declare
+  signature text;
+begin
+  foreach signature in array array[
+    'public.cfp_numeric_is_finite(numeric)',
+    'public.cfp_investment_transaction_scope_is_valid(text, text)',
+    'public.cfp_investment_transaction_amounts_are_valid(text, uuid, numeric, numeric, numeric, numeric, numeric)',
+    'public.cfp_prepare_investment_portfolio()',
+    'public.cfp_prepare_investment_holding()',
+    'public.cfp_prepare_portfolio_benchmark()',
+    'public.cfp_can_access_investment_portfolio(uuid)',
+    'public.cfp_can_manage_investment_portfolio(uuid)',
+    'public.cfp_investment_actor_name()',
+    'public.cfp_create_investment_portfolio(uuid, jsonb)',
+    'public.cfp_create_investment_holding(uuid, jsonb)',
+    'public.cfp_record_investment_transaction(uuid, jsonb)',
+    'public.cfp_record_investment_transfer(uuid, uuid, date, numeric, text, numeric, date, text, text)',
+    'public.cfp_reverse_investment_transaction(uuid, date, text)',
+    'public.cfp_record_investment_valuation(uuid, jsonb)'
+  ] loop
+    if to_regprocedure(signature) is null then
+      raise exception 'Portfolio function is missing: %', signature;
+    end if;
+    if has_function_privilege('anon', signature, 'EXECUTE') then
+      raise exception 'Anonymous execution remained available for %', signature;
+    end if;
+    if has_function_privilege('service_role', signature, 'EXECUTE') then
+      raise exception 'Service-role execution remained available for %', signature;
+    end if;
+    if exists (
+      select 1
+      from pg_catalog.pg_proc function_row
+      cross join lateral pg_catalog.aclexplode(
+        coalesce(
+          function_row.proacl,
+          pg_catalog.acldefault('f', function_row.proowner)
+        )
+      ) privilege_row
+      where function_row.oid = to_regprocedure(signature)
+        and privilege_row.grantee = 0
+        and privilege_row.privilege_type = 'EXECUTE'
+    ) then
+      raise exception 'PUBLIC execution remained available for %', signature;
+    end if;
+  end loop;
+
+  foreach signature in array array[
+    'public.cfp_can_access_investment_portfolio(uuid)',
+    'public.cfp_can_manage_investment_portfolio(uuid)',
+    'public.cfp_create_investment_portfolio(uuid, jsonb)',
+    'public.cfp_create_investment_holding(uuid, jsonb)',
+    'public.cfp_record_investment_transaction(uuid, jsonb)',
+    'public.cfp_record_investment_transfer(uuid, uuid, date, numeric, text, numeric, date, text, text)',
+    'public.cfp_reverse_investment_transaction(uuid, date, text)',
+    'public.cfp_record_investment_valuation(uuid, jsonb)'
+  ] loop
+    if not has_function_privilege('authenticated', signature, 'EXECUTE') then
+      raise exception 'Authenticated execution is missing for %', signature;
+    end if;
+  end loop;
+
+  foreach signature in array array[
+    'public.cfp_numeric_is_finite(numeric)',
+    'public.cfp_investment_transaction_scope_is_valid(text, text)',
+    'public.cfp_investment_transaction_amounts_are_valid(text, uuid, numeric, numeric, numeric, numeric, numeric)',
+    'public.cfp_prepare_investment_portfolio()',
+    'public.cfp_prepare_investment_holding()',
+    'public.cfp_prepare_portfolio_benchmark()',
+    'public.cfp_investment_actor_name()'
+  ] loop
+    if has_function_privilege('authenticated', signature, 'EXECUTE') then
+      raise exception 'Authenticated direct execution remained available for private helper %', signature;
+    end if;
+  end loop;
+end;
+$$;
+
 set local role authenticated;
 select set_config(
   'request.jwt.claims',
@@ -1032,6 +1110,17 @@ begin
     exception when insufficient_privilege then null;
     end;
   end loop;
+end;
+$$;
+
+do $$
+begin
+  perform public.cfp_create_investment_portfolio(
+    '90000000-0000-0000-0000-000000000021',
+    '{"name":"Anonymous privilege probe"}'::jsonb
+  );
+  raise exception 'Anonymous role unexpectedly executed a Portfolio mutation RPC';
+exception when insufficient_privilege then null;
 end;
 $$;
 

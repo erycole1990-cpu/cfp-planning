@@ -11,6 +11,10 @@ const migration = readFileSync(
   new URL(`../supabase/migrations/${portfolioFoundationMigration}`, import.meta.url),
   "utf8",
 );
+const privilegeMigration = readFileSync(
+  new URL("../supabase/migrations/0031_portfolio_function_privilege_hardening.sql", import.meta.url),
+  "utf8",
+);
 const portfolioData = readFileSync(
   new URL("../lib/cfp/portfolio-data.ts", import.meta.url),
   "utf8",
@@ -211,4 +215,55 @@ test("ordinary database errors do not leak technical details", () => {
     assert.match(message, /retry/i);
     assert.doesNotMatch(message, /permission|secret_policy|42501/i);
   }
+});
+
+test("migration 0031 gives direct Portfolio execution only to authenticated entry points", () => {
+  const authenticatedFunctions = [
+    "cfp_can_access_investment_portfolio(uuid)",
+    "cfp_can_manage_investment_portfolio(uuid)",
+    "cfp_create_investment_portfolio(uuid, jsonb)",
+    "cfp_create_investment_holding(uuid, jsonb)",
+    "cfp_record_investment_transaction(uuid, jsonb)",
+    "cfp_record_investment_transfer(uuid, uuid, date, numeric, text, numeric, date, text, text)",
+    "cfp_reverse_investment_transaction(uuid, date, text)",
+    "cfp_record_investment_valuation(uuid, jsonb)",
+  ];
+  const privateFunctions = [
+    "cfp_numeric_is_finite(numeric)",
+    "cfp_investment_transaction_scope_is_valid(text, text)",
+    "cfp_investment_transaction_amounts_are_valid(text, uuid, numeric, numeric, numeric, numeric, numeric)",
+    "cfp_prepare_investment_portfolio()",
+    "cfp_prepare_investment_holding()",
+    "cfp_prepare_portfolio_benchmark()",
+    "cfp_investment_actor_name()",
+  ];
+  const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  for (const signature of [...authenticatedFunctions, ...privateFunctions]) {
+    assert.match(
+      privilegeMigration,
+      new RegExp(
+        `revoke execute on function public\\.${escapeRegExp(signature)}\\s+from PUBLIC, anon, authenticated, service_role;`,
+        "i",
+      ),
+      `${signature} does not revoke every default API-role grant`,
+    );
+  }
+  for (const signature of authenticatedFunctions) {
+    assert.match(
+      privilegeMigration,
+      new RegExp(`grant execute on function public\\.${escapeRegExp(signature)}\\s+to authenticated;`, "i"),
+      `${signature} is not explicitly restored for authenticated callers`,
+    );
+  }
+  for (const signature of privateFunctions) {
+    assert.doesNotMatch(
+      privilegeMigration,
+      new RegExp(`grant execute on function public\\.${escapeRegExp(signature)}\\s+to (anon|authenticated|service_role|PUBLIC)`, "i"),
+      `${signature} is still directly exposed to a Data API role`,
+    );
+  }
+  assert.doesNotMatch(privilegeMigration, /execute on all functions/i);
+  assert.doesNotMatch(privilegeMigration, /alter default privileges/i);
+  assert.doesNotMatch(privilegeMigration, /grant execute[\s\S]*to (anon|service_role|PUBLIC)/i);
 });

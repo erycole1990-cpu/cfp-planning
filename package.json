@@ -15,9 +15,10 @@
     "test:reporting-states": "node --test --experimental-strip-types tests/reporting-state.test.mjs",
     "test:portfolio-schema": "node --test --experimental-strip-types tests/portfolio-schema.test.mjs",
     "test:portfolio-state": "node --test --experimental-strip-types tests/portfolio-state.test.mjs",
+    "test:portfolio-input": "node --test --experimental-strip-types tests/portfolio-input.test.mjs",
     "test:portfolio-transactions": "node --test --experimental-strip-types tests/portfolio-transaction.test.mjs",
     "test:portfolio-concurrency": "node --test tests/portfolio-valuation-concurrency.test.mjs",
-    "test:portfolio": "pnpm test:portfolio-schema && pnpm test:portfolio-state && pnpm test:portfolio-transactions"
+    "test:portfolio": "pnpm test:portfolio-schema && pnpm test:portfolio-state && pnpm test:portfolio-input && pnpm test:portfolio-transactions"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.0",

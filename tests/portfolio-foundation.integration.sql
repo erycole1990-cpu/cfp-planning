@@ -195,13 +195,32 @@ $$;
 
 select set_config('portfolio_test.primary_holding_id', public.cfp_create_investment_holding(
   current_setting('portfolio_test.primary_portfolio_id')::uuid,
-  '{"name":"Synthetic Global Fund","instrument_type":"unit_trust","asset_class":"mixed","currency_code":"usd","quantity_mode":"units"}'::jsonb
+  '{"name":"Synthetic Global Fund","instrument_type":"unit_trust","asset_class":"mixed","geography_code":"MY","provider_name":"Synthetic Provider","symbol":"SGF","isin":"MY0000000001","currency_code":"usd","quantity_mode":"units","risk_rating":"4","risk_source":"Synthetic questionnaire","risk_assessed_on":"2026-01-01","opened_on":"2026-01-01"}'::jsonb
 )::text, true);
 
 select set_config('portfolio_test.secondary_holding_id', public.cfp_create_investment_holding(
   current_setting('portfolio_test.secondary_portfolio_id')::uuid,
   '{"name":"Synthetic Cash Holding","instrument_type":"cash","asset_class":"cash","currency_code":"MYR","quantity_mode":"manual_value"}'::jsonb
 )::text, true);
+
+do $$
+declare
+  holding_count_before bigint := (select count(*) from public.investment_holdings);
+begin
+  begin
+    perform public.cfp_create_investment_holding(
+      current_setting('portfolio_test.primary_portfolio_id')::uuid,
+      '{"name":"Synthetic Rated Holding Without Source","instrument_type":"unit_trust","asset_class":"mixed","currency_code":"MYR","quantity_mode":"units","risk_rating":"4","risk_source":null}'::jsonb
+    );
+    raise exception 'Expected a risk rating without a source to fail';
+  exception when check_violation then null;
+  end;
+
+  if (select count(*) from public.investment_holdings) <> holding_count_before then
+    raise exception 'Invalid rated holding entered the portfolio after rejection';
+  end if;
+end;
+$$;
 
 do $$
 begin
@@ -226,6 +245,25 @@ begin
   );
   raise exception 'Expected incompatible transaction scope to fail';
 exception when check_violation then null;
+end;
+$$;
+
+do $$
+declare
+  transaction_count_before bigint := (select count(*) from public.investment_transactions);
+begin
+  begin
+    perform public.cfp_record_investment_transaction(
+      current_setting('portfolio_test.primary_portfolio_id')::uuid,
+      '{"transaction_date":"2026-01-05","transaction_type":"contribution","gross_amount":10,"currency_code":"MYR","fx_rate_to_base":4,"cash_flow_scope":"external_in"}'::jsonb
+    );
+    raise exception 'Expected base-currency transaction with unrelated FX to fail';
+  exception when check_violation then null;
+  end;
+
+  if (select count(*) from public.investment_transactions) <> transaction_count_before then
+    raise exception 'Invalid same-currency FX transaction entered immutable history';
+  end if;
 end;
 $$;
 
@@ -587,6 +625,38 @@ select set_config('portfolio_test.portfolio_valuation_id', public.cfp_record_inv
   current_setting('portfolio_test.primary_portfolio_id')::uuid,
   '{"valuation_scope":"portfolio","valuation_date":"2026-01-31","market_value":15000,"currency_code":"MYR","fx_rate_to_base":1,"source":"manual","evidence_status":"unverified"}'::jsonb
 )::text, true);
+
+do $$
+declare
+  valuation_count_before bigint := (select count(*) from public.investment_valuations);
+  invalid_payload jsonb;
+begin
+  foreach invalid_payload in array array[
+    jsonb_build_object(
+      'valuation_scope', 'portfolio',
+      'holding_id', current_setting('portfolio_test.primary_holding_id')::uuid,
+      'valuation_date', '2026-02-10', 'market_value', 100,
+      'currency_code', 'MYR', 'fx_rate_to_base', 1,
+      'source', 'manual', 'evidence_status', 'unverified'
+    ),
+    '{"valuation_scope":"holding","holding_id":null,"valuation_date":"2026-02-10","market_value":100,"currency_code":"MYR","fx_rate_to_base":1,"source":"manual","evidence_status":"unverified"}'::jsonb,
+    '{"valuation_scope":"portfolio","holding_id":null,"valuation_date":"2026-02-10","market_value":100,"currency_code":"MYR","fx_rate_to_base":4,"source":"manual","evidence_status":"unverified"}'::jsonb
+  ] loop
+    begin
+      perform public.cfp_record_investment_valuation(
+        current_setting('portfolio_test.primary_portfolio_id')::uuid,
+        invalid_payload
+      );
+      raise exception 'Expected invalid valuation scope or FX payload to fail: %', invalid_payload;
+    exception when check_violation then null;
+    end;
+  end loop;
+
+  if (select count(*) from public.investment_valuations) <> valuation_count_before then
+    raise exception 'Invalid scope or same-currency FX valuation entered immutable history';
+  end if;
+end;
+$$;
 
 select set_config('portfolio_test.superseding_valuation_id', public.cfp_record_investment_valuation(
   current_setting('portfolio_test.primary_portfolio_id')::uuid,

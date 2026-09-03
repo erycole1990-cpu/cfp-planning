@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  portfolioDatabaseErrorCategory,
   portfolioDatabaseErrorMessage,
   portfolioFoundationMigration,
 } from "../lib/cfp/portfolio-schema.ts";
@@ -201,19 +202,114 @@ test("reversal and valuation lookups do not disclose foreign record existence", 
 });
 
 test("missing portfolio schema errors give deployment-safe guidance", () => {
-  const message = portfolioDatabaseErrorMessage({
-    code: "PGRST205",
-    message: "Could not find the table public.investment_portfolios in the schema cache",
-  });
-  assert.match(message, /schema is missing or out of date/i);
-  assert.match(message, /0030_portfolio_analysis\.sql/i);
+  const errors = [
+    {
+      code: "PGRST205",
+      message: "Could not find the table public.investment_portfolios in the schema cache",
+    },
+    {
+      code: "42P01",
+      message: 'relation "public.investment_portfolios" does not exist',
+    },
+    {
+      message: "Could not find the relation public.investment_portfolios in the schema cache",
+    },
+  ];
+
+  for (const error of errors) {
+    assert.equal(portfolioDatabaseErrorCategory(error), "schema");
+    const message = portfolioDatabaseErrorMessage(error);
+    assert.match(message, /schema is missing or out of date/i);
+    assert.match(message, /0030_portfolio_analysis\.sql/i);
+  }
 });
 
-test("ordinary database errors do not leak technical details", () => {
-  const technical = { code: "42501", message: "permission denied", details: "secret_policy" };
-  for (const message of [portfolioDatabaseErrorMessage(technical), portfolioDatabaseErrorMessage(technical, "save")]) {
-    assert.match(message, /retry/i);
-    assert.doesNotMatch(message, /permission|secret_policy|42501/i);
+test("structured database categories take precedence over Portfolio object names", () => {
+  const cases = [
+    {
+      error: {
+        code: "42501",
+        message: "permission denied for table investment_portfolios",
+      },
+      category: "unavailable",
+    },
+    {
+      error: {
+        code: "42501",
+        message: "permission denied for function cfp_record_investment_valuation",
+      },
+      category: "unavailable",
+    },
+    {
+      error: {
+        code: "23514",
+        message: 'new row for relation "investment_portfolios" violates check constraint',
+      },
+      category: "validation",
+    },
+    {
+      error: {
+        code: "23505",
+        message: 'duplicate key value violates unique constraint on "investment_portfolios"',
+      },
+      category: "conflict",
+    },
+    {
+      error: {
+        code: "XX000",
+        message: "unexpected failure while reading investment_portfolios",
+      },
+      category: "unexpected",
+    },
+  ];
+
+  for (const { error, category } of cases) {
+    assert.equal(portfolioDatabaseErrorCategory(error), category);
+    if (category === "unavailable") {
+      assert.match(
+        portfolioDatabaseErrorMessage(error),
+        /unavailable or you do not have permission/i,
+      );
+    }
+    assert.doesNotMatch(
+      portfolioDatabaseErrorMessage(error, "save"),
+      /schema is missing|migration 0030/i,
+    );
+  }
+});
+
+test("database save failures are categorized without leaking technical details", () => {
+  const cases = [
+    {
+      error: { code: "23514", message: "violates check constraint", details: "investment_holdings_check" },
+      category: "validation",
+      expected: /values are invalid/i,
+    },
+    {
+      error: { code: "42501", message: "permission denied", details: "secret_policy" },
+      category: "unavailable",
+      expected: /unavailable or you are not authorized/i,
+    },
+    {
+      error: { code: "23505", message: "duplicate key", details: "private_unique_index" },
+      category: "conflict",
+      expected: /conflicts with an existing record/i,
+    },
+    {
+      error: { code: "XX000", message: "internal SQL failure", details: "private_function" },
+      category: "unexpected",
+      expected: /retry/i,
+    },
+  ];
+
+  for (const { error, category, expected } of cases) {
+    assert.equal(portfolioDatabaseErrorCategory(error), category);
+    const message = portfolioDatabaseErrorMessage(error, "save");
+    assert.match(message, expected);
+    assert.doesNotMatch(
+      message,
+      /23514|42501|23505|XX000|constraint|secret_policy|private_unique_index|private_function|SQL/i,
+    );
   }
 });
 

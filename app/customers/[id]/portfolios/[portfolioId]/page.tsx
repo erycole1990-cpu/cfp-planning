@@ -10,6 +10,11 @@ import { AppShell, EnvNotice, ErrorNotice, PageHeader, Pagination } from "@/app/
 import { formatDate, formatMoney, planningToday } from "@/lib/cfp/format";
 import { getPortfolioDetailData } from "@/lib/cfp/portfolio-data";
 import { portfolioTransactionDisplayAmounts } from "@/lib/cfp/portfolio";
+import {
+  HoldingRiskFields,
+  PortfolioFxFields,
+  PortfolioValuationScopeFields,
+} from "./portfolio-entry-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -120,9 +125,7 @@ export default async function PortfolioDetailPage({
               <label className="field"><span className="label">Symbol</span><input className="input" name="symbol" /></label>
               <label className="field"><span className="label">ISIN</span><input className="input uppercase" name="isin" /></label>
               <label className="field"><span className="label">Geography code</span><input className="input uppercase" name="geography_code" /></label>
-              <label className="field"><span className="label">Indicative risk rating (1–7)</span><input className="input" name="risk_rating" type="number" min="1" max="7" step="1" /></label>
-              <label className="field"><span className="label">Risk source</span><input className="input" name="risk_source" /></label>
-              <label className="field"><span className="label">Risk assessed on</span><input className="input" name="risk_assessed_on" type="date" /></label>
+              <HoldingRiskFields />
               <div className="md:col-span-3"><button className="btn" type="submit">Add holding</button></div>
             </form>
           </details> : null}
@@ -182,10 +185,7 @@ export default async function PortfolioDetailPage({
               <label className="field"><span className="label">Gross / trade amount</span><input className="input" name="gross_amount" type="number" min="0" step="any" defaultValue="0" /><span className="text-xs text-[#68756f]">Use zero for a standalone fee or tax.</span></label>
               <label className="field"><span className="label">Fee amount</span><input className="input" name="fee_amount" type="number" min="0" step="any" defaultValue="0" /><span className="text-xs text-[#68756f]">For Fee type: positive amount; gross and tax must be zero.</span></label>
               <label className="field"><span className="label">Tax amount</span><input className="input" name="tax_amount" type="number" min="0" step="any" defaultValue="0" /><span className="text-xs text-[#68756f]">For Tax type: positive amount; gross and fee must be zero.</span></label>
-              <label className="field"><span className="label">Currency</span><input className="input uppercase" name="currency_code" defaultValue={detail.portfolio.base_currency} maxLength={3} required /></label>
-              <label className="field"><span className="label">FX rate to base</span><input className="input" name="fx_rate_to_base" type="number" min="0.000000000001" step="any" defaultValue="1" required /></label>
-              <label className="field"><span className="label">FX rate date</span><input className="input" name="fx_rate_date" type="date" /></label>
-              <label className="field"><span className="label">FX source</span><input className="input" name="fx_source" /></label>
+              <PortfolioFxFields baseCurrency={detail.portfolio.base_currency} />
               <label className="field"><span className="label">Source reference</span><input className="input" name="source_reference" /></label>
               <label className="field"><span className="label">Notes</span><input className="input" name="notes" /></label>
               <div className="md:col-span-3"><button className="btn" type="submit">Record immutable transaction</button></div>
@@ -207,16 +207,12 @@ export default async function PortfolioDetailPage({
             <summary className="cursor-pointer text-lg font-bold">Record valuation</summary>
             <form action={recordInvestmentValuation} className="mt-5 grid gap-4 md:grid-cols-3">
               <input type="hidden" name="customer_id" value={id} /><input type="hidden" name="portfolio_id" value={portfolioId} />
-              <label className="field"><span className="label">Scope</span><select className="input" name="valuation_scope" defaultValue="portfolio"><option value="portfolio">Whole portfolio</option><option value="holding">Holding</option></select></label>
-              <label className="field"><span className="label">Holding (required for holding scope)</span><select className="input" name="holding_id" defaultValue=""><option value="">Whole portfolio</option>{detail.holdings.map((holding) => <option key={holding.id} value={holding.id}>{holding.name}</option>)}</select></label>
+              <PortfolioValuationScopeFields holdings={detail.holdings.map(({ id: holdingId, name }) => ({ id: holdingId, name }))} />
               <label className="field"><span className="label">Valuation date</span><input className="input" name="valuation_date" type="date" defaultValue={today} required /></label>
               <label className="field"><span className="label">Market value</span><input className="input" name="market_value" type="number" min="0" step="any" required /></label>
               <label className="field"><span className="label">Units</span><input className="input" name="units" type="number" min="0" step="any" /></label>
               <label className="field"><span className="label">Unit price</span><input className="input" name="unit_price" type="number" min="0" step="any" /></label>
-              <label className="field"><span className="label">Currency</span><input className="input uppercase" name="currency_code" defaultValue={detail.portfolio.base_currency} maxLength={3} required /></label>
-              <label className="field"><span className="label">FX rate to base</span><input className="input" name="fx_rate_to_base" type="number" min="0.000000000001" step="any" defaultValue="1" required /></label>
-              <label className="field"><span className="label">FX rate date</span><input className="input" name="fx_rate_date" type="date" /></label>
-              <label className="field"><span className="label">FX source</span><input className="input" name="fx_source" /></label>
+              <PortfolioFxFields baseCurrency={detail.portfolio.base_currency} />
               <label className="field"><span className="label">Source</span><select className="input" name="source" defaultValue="manual"><option value="manual">Manual</option><option value="provider_statement">Provider statement</option><option value="import">Import</option></select></label>
               <label className="field"><span className="label">Evidence status</span><select className="input" name="evidence_status" defaultValue="unverified"><option value="unverified">Unverified</option><option value="client_provided">Client provided</option><option value="adviser_verified">Adviser verified</option></select></label>
               <label className="field"><span className="label">Evidence note</span><input className="input" name="evidence_note" /></label>
